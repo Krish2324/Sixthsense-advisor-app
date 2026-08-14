@@ -1,0 +1,104 @@
+{
+  "expo": {
+    "name": "Sixth Sense Advisors",
+    "slug": "sixth-sense-advisors",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "sixthsenseadvisors",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#E8A0B8"
+    },
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sixthsense.advisors",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Video calls with clients",
+        "NSMicrophoneUsageDescription": "Voice and video calls with clients",
+        "NSPhotoLibraryUsageDescription": "Share photos and profile pictures",
+        "NSPhotoLibraryAddUsageDescription": "Save session recordings",
+        "NSFaceIDUsageDescription": "Secure login with Face ID",
+        "UIBackgroundModes": [
+          "audio",
+          "voip",
+          "remote-notification"
+        ]
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#E8A0B8"
+      },
+      "package": "com.sixthsense.advisors",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "POST_NOTIFICATIONS",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ],
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png",
+      "name": "Sixth Sense Advisors",
+      "shortName": "Advisors",
+      "description": "Professional psychic advisor app for managing readings and earnings.",
+      "themeColor": "#E8A0B8",
+      "backgroundColor": "#FFFFFF"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#E8A0B8"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Video calls with clients",
+          "microphonePermission": "Voice calls with clients",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Share photos and update profile"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Voice calls with clients"
+        }
+      ],
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

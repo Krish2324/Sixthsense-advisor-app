@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "512681929226",
+    "project_id": "sixth-sense-psychics",
+    "storage_bucket": "sixth-sense-psychics.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:512681929226:android:7e0aa0c99f5bdd51760df3",
+        "android_client_info": {
+          "package_name": "com.sixthsense.advisors"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "512681929226-37j50jbk2jvu09picvht72uhhdif2dut.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDFfLHF-bNKM-GwTdkivVL_sWG9yz9rLts"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "512681929226-37j50jbk2jvu09picvht72uhhdif2dut.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

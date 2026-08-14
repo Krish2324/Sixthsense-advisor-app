@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+*.bak
+
+# Expo & Metro
+.expo/
+.expo-shared/
+.metro-cache/
+.metro-health-check*
+dist/
+web-build/
+# @generated expo-cli sync-2b81b286409207a5da26e14c78851eb30d8ccbdb
+expo-env.d.ts
+# @end expo-cli
+
+# Native builds & outputs
+android/.gradle/
+android/app/build/
+android/build/
+ios/Pods/
+ios/build/
+/ios/
+/android/
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.apk
+*.aab
+*.ipa
+
+# Environment & Secret files
+.env
+.env.*
+!.env.example
+*.pem
+*.keystore
+
+# Logs & Reports
+*.log
+*.csv
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.*
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Testing & Cache
+coverage/
+.nyc_output/
+*.tsbuildinfo
