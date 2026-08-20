@@ -28,6 +28,24 @@ export default function TermsScreen() {
         <View style={styles.placeholder} />
       </View>
 
+      {/* ADV-070: Table of Contents Quick Links */}
+      <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SPACING.md, gap: 8 }}>
+          {[
+            '1. Agreement',
+            '2. Earnings & Payouts',
+            '3. Code of Conduct',
+            '6. Messaging',
+            '8. Monitoring & Privacy',
+            '10. New Client 4-Min',
+          ].map((title, idx) => (
+            <View key={idx} style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary }}>{title}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}

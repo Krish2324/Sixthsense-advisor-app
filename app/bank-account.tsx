@@ -21,6 +21,18 @@ import { useAuth } from '../src/context/AuthContext';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
+// ADV-048: Dynamic Currency Symbol Localization
+export const getCurrencySymbol = (countryOrCurrency?: string): string => {
+  if (!countryOrCurrency) return '$';
+  const c = countryOrCurrency.toUpperCase();
+  if (c === 'UK' || c === 'GB' || c === 'GBP') return '£';
+  if (c === 'EU' || c === 'EUR' || c === 'FR' || c === 'DE' || c === 'ES' || c === 'IT') return '€';
+  if (c === 'CA' || c === 'CAD') return 'CA$';
+  if (c === 'AU' || c === 'AUD') return 'A$';
+  if (c === 'IN' || c === 'INR') return '₹';
+  return '$';
+};
+
 interface BankAccount {
   id: string;
   bank_name: string;
@@ -247,13 +259,16 @@ export default function BankAccountScreen() {
                 <View style={styles.pendingInfo}>
                   <Ionicons name="information-circle" size={20} color={colors.warning} />
                   <Text style={[styles.pendingText, { color: colors.textSecondary }]}>
-                    Complete verification to enable payouts
+                    Stripe Identity Verification (KYC) is required before receiving payouts.
                   </Text>
+                  {/* ADV-051: Direct Stripe Express Onboarding Webview Link */}
                   <TouchableOpacity
-                    style={[styles.completeButton, { backgroundColor: colors.warning }]}
-                    onPress={handleUpdateBankInfo}
+                    style={[styles.completeButton, { backgroundColor: '#635BFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10 }]}
+                    onPress={handleConnectBank}
+                    disabled={isConnecting}
                   >
-                    <Text style={styles.completeButtonText}>Complete Setup</Text>
+                    <Ionicons name="shield-checkmark" size={18} color="#FFF" />
+                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>Complete Stripe KYC Verification</Text>
                   </TouchableOpacity>
                 </View>
               ) : (

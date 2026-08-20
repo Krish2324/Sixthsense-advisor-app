@@ -372,11 +372,23 @@ export default function DashboardScreen() {
           <Text style={[styles.name, { color: colors.textPrimary }]}>{psychic?.name || 'Advisor'}</Text>
         </View>
         
-        {/* Overall Status Indicator */}
-        <View style={[styles.statusIndicator, { backgroundColor: colors.backgroundCard }]}>
-          <View style={[styles.statusDot, { backgroundColor: isAnyServiceOnline ? colors.success : colors.textMuted }]} />
-          <Text style={[styles.statusText, { color: colors.textSecondary }]}>{isAnyServiceOnline ? 'Available' : 'Offline'}</Text>
-        </View>
+        {/* Overall Status Indicator / ADV-064: 1-Tap Header Quick Online/Offline Toggle */}
+        <TouchableOpacity 
+          style={[styles.statusIndicator, { backgroundColor: colors.backgroundCard, paddingHorizontal: 10, paddingVertical: 4 }]}
+          onPress={() => handleChatToggle(!chatOnline)}
+        >
+          <View style={[styles.statusDot, { backgroundColor: isAnyServiceOnline ? colors.success : colors.error }]} />
+          <Text style={[styles.statusText, { color: isAnyServiceOnline ? colors.success : colors.error, fontWeight: '700' }]}>
+            {isAnyServiceOnline ? 'ONLINE' : 'OFFLINE'}
+          </Text>
+          <Switch
+            value={isAnyServiceOnline}
+            onValueChange={(val) => handleChatToggle(val)}
+            trackColor={{ false: colors.border, true: colors.success }}
+            thumbColor="#FFF"
+            style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+          />
+        </TouchableOpacity>
       </View>
 
       <ScrollView

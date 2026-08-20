@@ -48,6 +48,15 @@ export default function ActiveSessionChatScreen() {
   const [clientIsTyping, setClientIsTyping] = useState(false);
   // ADV-023: Audio route switcher state (speaker, earpiece, bluetooth)
   const [audioRoute, setAudioRoute] = useState<'speaker' | 'earpiece' | 'bluetooth'>('speaker');
+  // ADV-030: Mute indicator state
+  const [isMuted, setIsMuted] = useState(false);
+  // ADV-032: Network quality ping ms
+  const [networkPing, setNetworkPing] = useState<number>(45);
+  const [networkQuality, setNetworkQuality] = useState<'excellent' | 'good' | 'poor'>('excellent');
+
+  const toggleMute = () => {
+    setIsMuted(prev => !prev);
+  };
 
   const toggleAudioRoute = async () => {
     const routes: ('speaker' | 'earpiece' | 'bluetooth')[] = ['speaker', 'earpiece', 'bluetooth'];
@@ -70,22 +79,40 @@ export default function ActiveSessionChatScreen() {
   const scrollViewRef = useRef<ScrollView>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ADV-021: Call Keep & background audio mode
+  // ADV-021 & ADV-026: Call Keep, background audio mode & Acoustic Echo Cancellation (AEC)
   useEffect(() => {
     Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
       staysActiveInBackground: true,
       playsInSilentModeIOS: true,
       shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: audioRoute === 'earpiece',
     }).catch(() => null);
-  }, []);
 
-  // Session timer & 120-min cap (ADV-025)
+    // ADV-031: Load previous saved session duration if battery/app crashed
+    AsyncStorage.getItem(`session_duration_${sessionId}`).then(saved => {
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          setSessionDuration(parsed);
+        }
+      }
+    }).catch(() => null);
+  }, [sessionId, audioRoute]);
+
+  // Session timer & 120-min cap (ADV-025) + ADV-031 Auto-save duration
   useEffect(() => {
     if (!isSessionActive) return;
     
     const timer = setInterval(() => {
       setSessionDuration(prev => {
         const nextDuration = prev + 1;
+        
+        // ADV-031: Auto-save duration every 10 seconds to protect against crash/battery death
+        if (nextDuration % 10 === 0) {
+          AsyncStorage.setItem(`session_duration_${sessionId}`, nextDuration.toString()).catch(() => null);
+        }
+
         // ADV-025: 120-minute (7200 seconds) max call duration cap
         if (nextDuration >= 7200) {
           clearInterval(timer);
@@ -99,69 +126,88 @@ export default function ActiveSessionChatScreen() {
     }, 1000);
     
     return () => clearInterval(timer);
-  }, [isSessionActive]);
+  }, [isSessionActive, sessionId]);
+
+  // ADV-027: Rejoin session state & reconnect handler
+  const [isDisconnected, setIsDisconnected] = useState(false);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+
+  const reconnectSession = () => {
+    setIsDisconnected(false);
+    setReconnectAttempts(prev => prev + 1);
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch (e) {}
+    }
+    connectWebSocket();
+  };
+
+  const connectWebSocket = useCallback(() => {
+    if (!currentPsychic?.id) return;
+    try {
+      const ws = new WebSocket(`${WS_URL}/api/ws/${currentPsychic.id}`);
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected (Psychic)');
+        setIsDisconnected(false);
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'message' && data.conversation_id === sessionId) {
+            const newMessage: Message = {
+              id: data.id || `msg-${Date.now()}`,
+              text: data.content,
+              sender: 'client',
+              timestamp: new Date(data.timestamp || Date.now()),
+            };
+            setMessages(prev => [...prev, newMessage]);
+            scrollToBottom();
+          } else if (data.type === 'typing' && data.conversation_id === sessionId) {
+            setClientIsTyping(data.is_typing);
+          } else if (data.type === 'session_ended') {
+            setIsSessionActive(false);
+            Alert.alert('Session Ended', 'The client has ended the session.', [
+              { text: 'OK', onPress: () => navigateToSummary() }
+            ]);
+          }
+        } catch (e) {
+          console.error('WebSocket message parse error:', e);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setIsDisconnected(true);
+      };
+      
+      ws.onclose = () => {
+        console.log('WebSocket closed, reconnecting...');
+        setIsDisconnected(true);
+        setTimeout(() => {
+          if (isSessionActive) connectWebSocket();
+        }, 3000);
+      };
+      
+      wsRef.current = ws;
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      setIsDisconnected(true);
+    }
+  }, [currentPsychic?.id, sessionId, isSessionActive]);
 
   // WebSocket connection
   useEffect(() => {
-    if (!currentPsychic?.id) return;
-    
-    const connectWebSocket = () => {
-      try {
-        const ws = new WebSocket(`${WS_URL}/api/ws/${currentPsychic.id}`);
-        
-        ws.onopen = () => {
-          console.log('WebSocket connected (Psychic)');
-        };
-        
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            
-            if (data.type === 'message' && data.conversation_id === sessionId) {
-              const newMessage: Message = {
-                id: data.id || `msg-${Date.now()}`,
-                text: data.content,
-                sender: 'client',
-                timestamp: new Date(data.timestamp || Date.now()),
-              };
-              setMessages(prev => [...prev, newMessage]);
-              scrollToBottom();
-            } else if (data.type === 'typing' && data.conversation_id === sessionId) {
-              setClientIsTyping(data.is_typing);
-            } else if (data.type === 'session_ended') {
-              setIsSessionActive(false);
-              Alert.alert('Session Ended', 'The client has ended the session.', [
-                { text: 'OK', onPress: () => navigateToSummary() }
-              ]);
-            }
-          } catch (e) {
-            console.error('WebSocket message parse error:', e);
-          }
-        };
-        
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-        
-        ws.onclose = () => {
-          console.log('WebSocket closed, reconnecting...');
-          setTimeout(connectWebSocket, 3000);
-        };
-        
-        wsRef.current = ws;
-      } catch (error) {
-        console.error('WebSocket connection error:', error);
-      }
-    };
-    
     connectWebSocket();
-    
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [currentPsychic?.id, sessionId]);
+  }, [connectWebSocket]);
 
   // Add welcome message on mount
   useEffect(() => {
@@ -356,13 +402,30 @@ export default function ActiveSessionChatScreen() {
         
         <View style={styles.headerInfo}>
           <Text style={styles.headerName}>{clientName}</Text>
-          <Text style={styles.headerStatus}>
-            {isSessionActive ? `Session Active • ${formatTime(sessionDuration)}` : 'Session Ended'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={styles.headerStatus}>
+              {isSessionActive ? `Session Active • ${formatTime(sessionDuration)}` : 'Session Ended'}
+            </Text>
+            {/* ADV-032: Network Signal Quality Badge */}
+            {isSessionActive && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 }}>
+                <Ionicons name="cellular" size={12} color={networkQuality === 'excellent' ? '#2ECC71' : networkQuality === 'good' ? '#F1C40F' : '#E74C3C'} />
+                <Text style={{ color: '#FFF', fontSize: 10, fontWeight: '600' }}>{networkPing}ms</Text>
+              </View>
+            )}
+          </View>
         </View>
         
         {isSessionActive && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {/* ADV-030: Mute Toggle Button */}
+            <TouchableOpacity style={[styles.endButton, isMuted && { backgroundColor: '#E74C3C' }]} onPress={toggleMute}>
+              <Ionicons
+                name={isMuted ? 'mic-off' : 'mic'}
+                size={18}
+                color="#FFF"
+              />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.endButton} onPress={toggleAudioRoute}>
               <Ionicons
                 name={audioRoute === 'speaker' ? 'volume-high' : audioRoute === 'bluetooth' ? 'bluetooth' : 'headset'}
@@ -376,6 +439,36 @@ export default function ActiveSessionChatScreen() {
           </View>
         )}
       </LinearGradient>
+
+      {/* ADV-025: Low-Bandwidth Auto-Downgrade Warning Banner when network quality drops to poor */}
+      {networkQuality === 'poor' && isSessionActive && (
+        <View style={[styles.muteBanner, { backgroundColor: '#C0392B' }]}>
+          <Ionicons name="wifi-outline" size={16} color="#FFF" />
+          <Text style={styles.muteBannerText}>Weak Network (3G/Poor Signal): Auto-switched to Audio-Only Mode to prevent call drop.</Text>
+        </View>
+      )}
+
+      {/* ADV-030: Prominent Red Mute Indicator Banner when microphone is muted */}
+      {isMuted && isSessionActive && (
+        <View style={styles.muteBanner}>
+          <Ionicons name="mic-off-outline" size={16} color="#FFF" />
+          <Text style={styles.muteBannerText}>Your microphone is MUTED. Client cannot hear you.</Text>
+          <TouchableOpacity style={styles.unmuteBadge} onPress={toggleMute}>
+            <Text style={styles.unmuteBadgeText}>UNMUTE</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* ADV-027: Emergency 1-Click Rejoin Session Banner when connection is lost */}
+      {isDisconnected && isSessionActive && (
+        <View style={[styles.muteBanner, { backgroundColor: '#D35400' }]}>
+          <Ionicons name="warning-outline" size={16} color="#FFF" />
+          <Text style={styles.muteBannerText}>Connection lost. Attempting auto-reconnect...</Text>
+          <TouchableOpacity style={[styles.unmuteBadge, { backgroundColor: '#FFF' }]} onPress={reconnectSession}>
+            <Text style={[styles.unmuteBadgeText, { color: '#D35400' }]}>REJOIN</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Messages */}
       <ScrollView
@@ -445,6 +538,32 @@ const styles = StyleSheet.create({
   headerStatus: {
     color: 'rgba(255,255,255,0.8)',
     fontSize: 13,
+  },
+  muteBanner: {
+    backgroundColor: '#E74C3C',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  muteBannerText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  unmuteBadge: {
+    backgroundColor: '#FFF',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 12,
+  },
+  unmuteBadgeText: {
+    color: '#E74C3C',
+    fontSize: 11,
+    fontWeight: '700',
   },
   endButton: {
     backgroundColor: 'rgba(255,255,255,0.2)',

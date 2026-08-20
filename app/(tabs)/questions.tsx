@@ -65,6 +65,9 @@ export default function ReadingsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending');
+  // ADV-073: Question Feed Pagination State
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [refreshing, setRefreshing] = useState(false);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [selectedReading, setSelectedReading] = useState<typeof MOCK_READINGS[0] | null>(null);
@@ -91,7 +94,7 @@ export default function ReadingsScreen() {
     });
   };
 
-  const renderReading = ({ item }: { item: typeof MOCK_READINGS[0] }) => (
+  const renderReading = useCallback(({ item }: { item: typeof MOCK_READINGS[0] }) => (
     <View style={[styles.readingCard, { backgroundColor: colors.backgroundCard }]}>
       {/* Header */}
       <View style={styles.readingHeader}>
@@ -151,7 +154,7 @@ export default function ReadingsScreen() {
         )}
       </View>
     </View>
-  );
+  ), [colors]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -256,10 +259,19 @@ export default function ReadingsScreen() {
 
       {/* Readings List */}
       <FlatList
-        data={filteredReadings}
+        data={filteredReadings.slice(0, page * PAGE_SIZE)}
         renderItem={renderReading}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        onEndReached={() => {
+          if (page * PAGE_SIZE < filteredReadings.length) {
+            setPage(prev => prev + 1);
+          }
+        }}
+        onEndReachedThreshold={0.5}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

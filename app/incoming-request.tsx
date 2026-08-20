@@ -34,7 +34,9 @@ export default function IncomingRequestScreen() {
   
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(1)).current;
   const [isProcessing, setIsProcessing] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(30);
 
   useEffect(() => {
     // ADV-022: Configure high-priority incoming call audio ringtone & vibration
@@ -43,6 +45,24 @@ export default function IncomingRequestScreen() {
       staysActiveInBackground: true,
       shouldDuckAndroid: true,
     }).catch(() => null);
+
+    // ADV-029: 30-second request timeout countdown
+    const timeoutTimer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timeoutTimer);
+          handleReject();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    Animated.timing(progressAnim, {
+      toValue: 0,
+      duration: 30000,
+      useNativeDriver: false,
+    }).start();
 
     // Start vibration pattern
     if (Platform.OS !== 'web') {
@@ -75,6 +95,7 @@ export default function IncomingRequestScreen() {
     }).start();
 
     return () => {
+      clearInterval(timeoutTimer);
       if (Platform.OS !== 'web') {
         Vibration.cancel();
       }
@@ -178,8 +199,24 @@ export default function IncomingRequestScreen() {
         <View style={styles.sessionTypeContainer}>
           <Ionicons name={getSessionIcon() as any} size={20} color={colors.primary} />
           <Text style={styles.sessionTypeText}>
-            Incoming {getSessionLabel()} Request
+            Incoming {getSessionLabel()} Request ({timeLeft}s)
           </Text>
+        </View>
+
+        {/* ADV-029: 30-second Countdown Progress Bar */}
+        <View style={styles.timerBarContainer}>
+          <Animated.View
+            style={[
+              styles.timerBarFill,
+              {
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+                backgroundColor: timeLeft <= 5 ? '#E74C3C' : colors.primary,
+              },
+            ]}
+          />
         </View>
 
         <View style={styles.sessionDetails}>
@@ -288,7 +325,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 12,
+  },
+  timerBarContainer: {
+    width: width * 0.8,
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 3,
+    overflow: 'hidden',
     marginBottom: 20,
+  },
+  timerBarFill: {
+    height: '100%',
+    borderRadius: 3,
   },
   sessionTypeText: {
     fontSize: 16,

@@ -143,6 +143,17 @@ export default function ApplicationScreen() {
     };
     loadUserData();
   }, [psychic]);
+
+  // ADV-056: Real-time form auto-save and restoration
+  useEffect(() => {
+    AsyncStorage.getItem('advisor_application_draft').then(raw => {
+      if (raw && !params.videoCompleted) {
+        const parsed = JSON.parse(raw);
+        if (parsed.formData) setFormData(parsed.formData);
+        if (parsed.currentStep) setCurrentStep(parsed.currentStep);
+      }
+    }).catch(() => null);
+  }, []);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -185,6 +196,13 @@ export default function ApplicationScreen() {
     // Payment (pre-filled with dummy email for testing)
     paypalEmail: 'payments@sixthsense.com',
   });
+
+  // ADV-056: Auto-save application draft whenever fields update
+  useEffect(() => {
+    if (formData.fullName || formData.email || formData.bio || currentStep > 1) {
+      AsyncStorage.setItem('advisor_application_draft', JSON.stringify({ formData, currentStep })).catch(() => null);
+    }
+  }, [formData, currentStep]);
 
   const specialtiesList = [
     'Love & Relationships', 'Career & Finance', 'Tarot Cards', 'Dream Analysis',
@@ -290,6 +308,13 @@ export default function ApplicationScreen() {
     return null;
   };
 
+  // ADV-057: Social Media URL format validator regex
+  const validateSocialUrl = (url: string): boolean => {
+    if (!url || !url.trim()) return true;
+    const socialRegex = /^(https?:\/\/)?(www\.)?(instagram|facebook|tiktok|youtube|twitter|x|linkedin)\.com\/[A-Za-z0-9_.-]+\/?$/i;
+    return socialRegex.test(url.trim());
+  };
+
   const validateStep2 = (): string | null => {
     if (!formData.yearsExperience.trim()) return 'Please enter your years of experience';
     if (formData.specialties.length === 0) return 'Please select at least one specialty';
@@ -299,6 +324,10 @@ export default function ApplicationScreen() {
     if (!formData.bio.trim()) return 'Please write about yourself';
     if (countWords(formData.bio) < 20) return 'Please write at least 20 words about yourself';
     if (countWords(formData.bio) > MAX_BIO_WORDS) return `Bio must be ${MAX_BIO_WORDS} words or less`;
+    // ADV-057: Social Media link format validation
+    if ((formData as any).socialLink && !validateSocialUrl((formData as any).socialLink)) {
+      return 'Please enter a valid social media profile link (e.g. instagram.com/yourhandle)';
+    }
     return null;
   };
 
@@ -308,6 +337,17 @@ export default function ApplicationScreen() {
     if (countWords(formData.background) < 30) return 'Please write at least 30 words about your background';
     if (countWords(formData.background) > MAX_BACKGROUND_WORDS) return `Background must be ${MAX_BACKGROUND_WORDS} words or less`;
     return null;
+  };
+
+  // ADV-059: Government ID Document Image Quality & Clarity Checker
+  const validateIdDocumentQuality = (asset: { width?: number; height?: number; fileSize?: number }): { valid: boolean; error?: string } => {
+    if (asset.width && asset.width < 800) {
+      return { valid: false, error: 'Document image resolution is too low for verification. Please capture a clear high-res photo (min 800px width).' };
+    }
+    if (asset.fileSize && asset.fileSize < 50000) {
+      return { valid: false, error: 'Document file size is too small or blurry. Please upload a clear photo of your government ID.' };
+    }
+    return { valid: true };
   };
 
   // Step 4 is now Intro Video - no form validation needed, handled by intro-video screen

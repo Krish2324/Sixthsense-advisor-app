@@ -18,6 +18,37 @@ import { useTheme } from '../src/context/ThemeContext';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
+// ADV-065: Audio Waveform Visualizer Component
+const AudioWaveformVisualizer = ({ isRecording }: { isRecording: boolean }) => {
+  const [heights, setHeights] = useState([12, 24, 16, 32, 20, 28, 14, 30, 18, 22]);
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const interval = setInterval(() => {
+      setHeights(Array.from({ length: 10 }, () => Math.floor(Math.random() * 26) + 8));
+    }, 150);
+    return () => clearInterval(interval);
+  }, [isRecording]);
+
+  if (!isRecording) return null;
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 40, marginTop: 10 }}>
+      {heights.map((h, i) => (
+        <View
+          key={i}
+          style={{
+            width: 4,
+            height: h,
+            backgroundColor: '#22C55E',
+            borderRadius: 2,
+          }}
+        />
+      ))}
+    </View>
+  );
+};
+
 export default function RecordAnswerScreen() {
   const { questionId, clientName, question } = useLocalSearchParams<{
     questionId: string;
@@ -66,6 +97,25 @@ export default function RecordAnswerScreen() {
     };
   }, []);
 
+  // ADV-072: 3-2-1 Countdown Timer State
+  const [countdownValue, setCountdownValue] = useState<number | null>(null);
+
+  const handleStartRecordingWithCountdown = () => {
+    if (isRecording || countdownValue !== null) return;
+    setCountdownValue(3);
+    const countdownInterval = setInterval(() => {
+      setCountdownValue(prev => {
+        if (prev === 1 || prev === null) {
+          clearInterval(countdownInterval);
+          setCountdownValue(null);
+          startRecording();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
   const startRecording = async () => {
     if (!cameraRef.current) {
       Alert.alert(
@@ -102,8 +152,11 @@ export default function RecordAnswerScreen() {
         setRecordingDuration(prev => prev + 1);
       }, 1000);
       
+      // ADV-028: Cap video recording quality at 720p HD to prevent device overheating and battery drain
       const video = await cameraRef.current.recordAsync({
         maxDuration: 300, // 5 minutes max
+        quality: '720p',
+        maxBitrate: 2000000, // 2 Mbps max
       });
       
       if (video && video.uri) {
@@ -188,8 +241,15 @@ export default function RecordAnswerScreen() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const [isFlipping, setIsFlipping] = useState(false);
+
   const toggleCameraFacing = () => {
+    if (isFlipping) return;
+    setIsFlipping(true);
     setFacing(current => (current === 'back' ? 'front' : 'back'));
+    setTimeout(() => {
+      setIsFlipping(false);
+    }, 600);
   };
 
   // Permission handling
@@ -330,13 +390,14 @@ export default function RecordAnswerScreen() {
             facing={facing}
             mode="video"
           >
-            {/* Recording indicator */}
+            {/* Recording indicator & ADV-065 Audio Waveform Visualizer */}
             {isRecording && (
               <View style={styles.recordingIndicator}>
                 <View style={styles.recordingDot} />
                 <Text style={styles.recordingText}>
                   Recording {formatDuration(recordingDuration)}
                 </Text>
+                <AudioWaveformVisualizer isRecording={isRecording} />
               </View>
             )}
           </CameraView>
@@ -382,7 +443,7 @@ export default function RecordAnswerScreen() {
                 styles.recordButton,
                 isRecording && styles.recordButtonActive,
               ]}
-              onPress={isRecording ? stopRecording : startRecording}
+              onPress={isRecording ? stopRecording : handleStartRecordingWithCountdown}
             >
               <View style={[
                 styles.recordButtonInner,
@@ -393,6 +454,14 @@ export default function RecordAnswerScreen() {
           </View>
         )}
       </View>
+
+      {/* ADV-072: 3-2-1 Countdown Overlay */}
+      {countdownValue !== null && (
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 999 }}>
+          <Text style={{ fontSize: 120, fontWeight: '900', color: '#FFD700' }}>{countdownValue}</Text>
+          <Text style={{ fontSize: 18, color: '#FFF', fontWeight: '700', marginTop: 12 }}>GET READY...</Text>
+        </View>
+      )}
     </View>
   );
 }

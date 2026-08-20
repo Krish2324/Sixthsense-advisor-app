@@ -40,39 +40,73 @@ export default function PermissionsScreen() {
   const [photoStatus, setPhotoStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
 
   const requestNotificationPermission = async () => {
-    try {
-      // Skip notifications on web or if module not available
-      if (Platform.OS === 'web' || !Notifications) {
-        setNotificationStatus('granted');
-        return;
-      }
-      const { status } = await Notifications.requestPermissionsAsync();
-      setNotificationStatus(status === 'granted' ? 'granted' : 'denied');
-    } catch (error) {
-      console.error('Error requesting notification permission:', error);
-      // On Android, just grant if notifications aren't available
-      setNotificationStatus('granted');
-    }
+    // ADV-053: Explanatory rationale modal before requesting notification permission
+    Alert.alert(
+      '🔔 Push Notifications Rationale',
+      '6thSense requires Push Notification permissions so you receive immediate alerts when clients request live video calls or send urgent chat messages.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Allow Notifications',
+          onPress: async () => {
+            try {
+              if (Platform.OS === 'web' || !Notifications) {
+                setNotificationStatus('granted');
+                return;
+              }
+              const { status } = await Notifications.requestPermissionsAsync();
+              setNotificationStatus(status === 'granted' ? 'granted' : 'denied');
+            } catch (error) {
+              setNotificationStatus('granted');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const requestCameraPermission = async () => {
-    try {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      setCameraStatus(status === 'granted' ? 'granted' : 'denied');
-    } catch (error) {
-      console.error('Error requesting camera permission:', error);
-      setCameraStatus('denied');
-    }
+    // ADV-053: Explanatory rationale modal before requesting camera permission
+    Alert.alert(
+      '📹 Camera Access Rationale',
+      'Camera access is required to stream live HD video readings with clients and record video answer submissions.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Allow Camera',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              setCameraStatus(status === 'granted' ? 'granted' : 'denied');
+            } catch (error) {
+              setCameraStatus('denied');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const requestPhotoPermission = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      setPhotoStatus(status === 'granted' ? 'granted' : 'denied');
-    } catch (error) {
-      console.error('Error requesting photo permission:', error);
-      setPhotoStatus('denied');
-    }
+    // ADV-053: Explanatory rationale modal before requesting photo permission
+    Alert.alert(
+      '🖼️ Photo Library Rationale',
+      'Photo library access allows you to upload bio photos and attach Tarot/Rune images in client reading chats.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Allow Photos',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              setPhotoStatus(status === 'granted' ? 'granted' : 'denied');
+            } catch (error) {
+              setPhotoStatus('denied');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleContinue = async () => {

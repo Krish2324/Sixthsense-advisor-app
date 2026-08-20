@@ -41,6 +41,8 @@ export default function PsychicNotificationsScreen() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // ADV-067: Notification Category Filter state
+  const [activeCategory, setActiveCategory] = useState<'all' | 'sessions' | 'earnings' | 'system'>('all');
 
   const fetchNotifications = useCallback(async () => {
     if (!psychicId) {
@@ -190,7 +192,7 @@ export default function PsychicNotificationsScreen() {
     }
   };
 
-  const renderNotification = ({ item }: { item: Notification }) => (
+  const renderNotification = useCallback(({ item }: { item: Notification }) => (
     <TouchableOpacity
       style={[
         styles.notificationCard,
@@ -225,7 +227,7 @@ export default function PsychicNotificationsScreen() {
       
       {!item.is_read && <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />}
     </TouchableOpacity>
-  );
+  ), [colors, handleNotificationPress]);
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
@@ -252,10 +254,40 @@ export default function PsychicNotificationsScreen() {
         ) : (
           <View style={{ width: 80 }} />
         )}
+      {/* ADV-067: Notification Category Filter Tabs */}
+      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, backgroundColor: colors.background }}>
+        {[
+          { id: 'all', label: 'All' },
+          { id: 'sessions', label: 'Sessions 🔮' },
+          { id: 'earnings', label: 'Earnings 💰' },
+          { id: 'system', label: 'System ⚙️' },
+        ].map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 16,
+              backgroundColor: activeCategory === item.id ? colors.primary : colors.backgroundCard,
+              borderWidth: 1,
+              borderColor: activeCategory === item.id ? colors.primary : colors.border,
+            }}
+            onPress={() => setActiveCategory(item.id as any)}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '600', color: activeCategory === item.id ? '#FFF' : colors.textSecondary }}>
+              {item.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       <FlatList
-        data={notifications}
+        data={notifications.filter(n => {
+          if (activeCategory === 'sessions') return n.notification_type === 'message' || n.notification_type === 'reading';
+          if (activeCategory === 'earnings') return n.notification_type === 'tip' || n.notification_type === 'payout';
+          if (activeCategory === 'system') return n.notification_type === 'admin' || n.notification_type === 'promo' || n.notification_type === 'announcement';
+          return true;
+        })}
         renderItem={renderNotification}
         keyExtractor={(item) => item.id}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}

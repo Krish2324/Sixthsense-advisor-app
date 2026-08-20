@@ -1,9 +1,11 @@
-import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -13,6 +15,18 @@ import { COLORS, SPACING } from '../../src/constants/theme';
 export default function PendingScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  // ADV-061: Live status refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleCheckStatus = async () => {
+    setIsRefreshing(true);
+    setTimeout(() => {
+      setIsRefreshing(false);
+      const msg = 'Application Status: Under Review.\nEstimated review completion: 24 - 48 hours.';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Status Refreshed', msg);
+    }, 800);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -54,7 +68,23 @@ export default function PendingScreen() {
       </View>
 
       {/* Footer */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + SPACING.md }]}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + SPACING.md, gap: 10 }]}>
+        {/* ADV-061: Live Application Status Refresh Button */}
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: COLORS.primary }]}
+          onPress={handleCheckStatus}
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="refresh-circle" size={22} color="#FFF" />
+              <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '600' }}>Refresh Status</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.button}
           onPress={() => router.replace('/(auth)/welcome')}

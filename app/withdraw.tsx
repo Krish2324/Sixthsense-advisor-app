@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
 import { useAuth } from '../src/context/AuthContext';
@@ -23,6 +24,27 @@ const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 // PayPal fee: 2.9% + $0.30 per transaction
 const PAYPAL_FEE_PERCENT = 0.029;
 const PAYPAL_FEE_FIXED = 0.30;
+
+// ADV-048: Dynamic Currency Symbol Localization
+export const getCurrencySymbol = (countryOrCurrency?: string): string => {
+  if (!countryOrCurrency) return '$';
+  const c = countryOrCurrency.toUpperCase();
+  if (c === 'UK' || c === 'GB' || c === 'GBP') return '£';
+  if (c === 'EU' || c === 'EUR' || c === 'FR' || c === 'DE' || c === 'ES' || c === 'IT') return '€';
+  if (c === 'CA' || c === 'CAD') return 'CA$';
+  if (c === 'AU' || c === 'AUD') return 'A$';
+  if (c === 'IN' || c === 'INR') return '₹';
+  return '$';
+};
+
+// ADV-043: US ABA Routing Number Checksum Validation (Weighted Checksum Algorithm)
+export const isValidABARouting = (routing: string): boolean => {
+  const cleaned = routing.replace(/\D/g, '');
+  if (cleaned.length !== 9) return false;
+  const d = cleaned.split('').map(Number);
+  const checksum = (3 * (d[0] + d[3] + d[6]) + 7 * (d[1] + d[4] + d[7]) + (d[2] + d[5] + d[8])) % 10;
+  return checksum === 0;
+};
 
 export default function WithdrawScreen() {
   const router = useRouter();
@@ -38,6 +60,8 @@ export default function WithdrawScreen() {
   });
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'paypal'>('bank');
+  const [routingNumber, setRoutingNumber] = useState('');
+  const [routingError, setRoutingError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -60,6 +84,22 @@ export default function WithdrawScreen() {
   const getPayPalFee = () => {
     const amount = parseFloat(withdrawAmount) || 0;
     return calculatePayPalFee(amount);
+  };
+
+  // ADV-050: Restore unsaved form state on mount
+  useEffect(() => {
+    AsyncStorage.getItem('withdraw_form_draft').then(raw => {
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.amount) setWithdrawAmount(parsed.amount);
+        if (parsed.routing) setRoutingNumber(parsed.routing);
+      }
+    }).catch(() => null);
+  }, []);
+
+  const updateWithdrawAmount = (text: string) => {
+    setWithdrawAmount(text);
+    AsyncStorage.setItem('withdraw_form_draft', JSON.stringify({ amount: text, routing: routingNumber })).catch(() => null);
   };
 
   useEffect(() => {
@@ -98,6 +138,16 @@ export default function WithdrawScreen() {
       return;
     }
 
+    // ADV-043: US ABA Routing Number Validation Check
+    if (paymentMethod === 'bank' && routingNumber.trim().length > 0) {
+      if (!isValidABARouting(routingNumber.trim())) {
+        const msg = 'Invalid US ABA Routing Number checksum. Please double-check your 9-digit routing number.';
+        setRoutingError(msg);
+        Platform.OS === 'web' ? alert(msg) : Alert.alert('Routing Number Error', msg);
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -122,6 +172,8 @@ export default function WithdrawScreen() {
         }
         fetchEarnings();
         setWithdrawAmount('');
+        // ADV-050: Clear form draft on success
+        AsyncStorage.removeItem('withdraw_form_draft').catch(() => null);
       } else {
         throw new Error(data.detail || 'Failed to submit withdrawal');
       }
@@ -179,7 +231,7 @@ export default function WithdrawScreen() {
         <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Withdrawal Amount</Text>
           <View style={[styles.amountInput, { borderColor: colors.border }]}>
-            <Text style={[styles.currencySymbol, { color: colors.textMuted }]}>$</Text>
+            <Text style={[styles.currencySymbol, { color: colors.textMuted }]}>{getCurrencySymbol(user?.country)}</Text>
             <TextInput
               style={[styles.input, { color: colors.textPrimary }]}
               placeholder="0.00"
@@ -189,7 +241,14 @@ export default function WithdrawScreen() {
               keyboardType="decimal-pad"
             />
           </View>
-          <Text style={[styles.minNote, { color: colors.textMuted }]}>Minimum withdrawal: $50.00</Text>
+          {/* ADV-047: Minimum Withdrawal Threshold Guardrail */}
+          {withdrawAmount.length > 0 && parseFloat(withdrawAmount) < 50 ? (
+            <Text style={[styles.minNote, { color: colors.error, fontWeight: '600' }]}>
+              ⚠️ Amount must be at least $50.00 to request payout
+            </Text>
+          ) : (
+            <Text style={[styles.minNote, { color: colors.textMuted }]}>Minimum withdrawal: $50.00</Text>
+          )}
 
           {/* Quick Amount Buttons */}
           <View style={styles.quickAmounts}>
@@ -301,6 +360,44 @@ export default function WithdrawScreen() {
             </View>
           </View>
         )}
+
+        {/* ADV-045: Payout Status Tracking Timeline */}
+        <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Payout Tracking Timeline</Text>
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+            {/* Step 1 */}
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.success, justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="checkmark" size={18} color="#FFF" />
+              </View>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textPrimary, marginTop: 6 }}>Requested</Text>
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>Instant</Text>
+            </View>
+
+            <View style={{ height: 2, flex: 1, backgroundColor: colors.success, marginBottom: 18 }} />
+
+            {/* Step 2 */}
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="time" size={18} color="#FFF" />
+              </View>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textPrimary, marginTop: 6 }}>Processing</Text>
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>1-2 Days</Text>
+            </View>
+
+            <View style={{ height: 2, flex: 1, backgroundColor: colors.border, marginBottom: 18 }} />
+
+            {/* Step 3 */}
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.backgroundElevated, justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="business" size={16} color={colors.textMuted} />
+              </View>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.textMuted, marginTop: 6 }}>Deposited</Text>
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>Completed</Text>
+            </View>
+          </View>
+        </View>
       </ScrollView>
 
       {/* Submit Button */}

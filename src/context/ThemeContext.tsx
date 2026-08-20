@@ -72,9 +72,15 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     loadTheme();
   }, []);
 
-  // Determine if dark mode based on theme setting
+  // ADV-066: Automatic Night Reading Dark Theme Scheduler (9 PM - 6 AM)
+  const isNightHours = () => {
+    const hour = new Date().getHours();
+    return hour >= 21 || hour < 6;
+  };
+
+  // Determine if dark mode based on theme setting & night hours
   const isDark = themeMode === 'auto' 
-    ? systemColorScheme === 'dark' 
+    ? (systemColorScheme === 'dark' || isNightHours()) 
     : themeMode === 'dark';
 
   const setThemeMode = async (mode: ThemeMode) => {

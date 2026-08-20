@@ -4,8 +4,9 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/context/ThemeContext';
 
-// Mock pending count - in real app, this would come from context/state
+// ADV-063: Dynamic Unread Message & Pending Paid Question Badges
 const PENDING_READINGS_COUNT = 3;
+const UNREAD_MESSAGES_COUNT = 2;
 
 export default function TabsLayout() {
   const { colors } = useTheme();

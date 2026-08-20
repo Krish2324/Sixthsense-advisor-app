@@ -31,6 +31,21 @@ export default function HelpCenterScreen() {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // ADV-068: Searchable FAQ Accordion state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
+
+  const faqItems = [
+    { id: 1, question: 'How and when do I get paid?', answer: 'Payouts are processed weekly via Direct Deposit or PayPal. Minimum withdrawal threshold is $50.' },
+    { id: 2, question: 'How do I change my reading rates?', answer: 'Go to Settings > Set Rates. You can adjust your per-minute chat and video rates within $0.99 - $19.99/min limits.' },
+    { id: 3, question: 'What happens if a client disconnects mid-session?', answer: 'Session earnings automatically calculate for the elapsed minutes up to the point of disconnection.' },
+    { id: 4, question: 'How do 1099 tax forms work?', answer: 'If your total annual earnings reach $600+, 6thSense will generate a 1099-K tax document for your tax return.' },
+  ];
+
+  const filteredFaqs = faqItems.filter(f =>
+    f.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    f.answer.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const subjectOptions = [
     'Account Issue',
@@ -110,6 +125,37 @@ export default function HelpCenterScreen() {
                 Submit your concern and we'll respond via email within 24-48 hours.
               </Text>
             </View>
+          </View>
+
+          {/* ADV-068: Searchable FAQ Accordion */}
+          <View style={{ marginBottom: SPACING.lg }}>
+            <Text style={[styles.label, { color: colors.textPrimary, marginBottom: 8 }]}>Search Frequently Asked Questions</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.backgroundElevated, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
+              <Ionicons name="search" size={20} color={colors.textMuted} />
+              <TextInput
+                style={{ flex: 1, paddingVertical: 12, paddingHorizontal: 8, color: colors.textPrimary, fontSize: 14 }}
+                placeholder="Search FAQs (e.g. payouts, rates)..."
+                placeholderTextColor={colors.textMuted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
+
+            {filteredFaqs.map(faq => (
+              <TouchableOpacity
+                key={faq.id}
+                style={{ backgroundColor: colors.backgroundCard, borderRadius: 12, padding: 14, marginBottom: 8 }}
+                onPress={() => setExpandedFaq(expandedFaq === faq.id ? null : faq.id)}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 14, fontWeight: '600', color: colors.textPrimary, flex: 1 }}>{faq.question}</Text>
+                  <Ionicons name={expandedFaq === faq.id ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+                </View>
+                {expandedFaq === faq.id && (
+                  <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 8, lineHeight: 18 }}>{faq.answer}</Text>
+                )}
+              </TouchableOpacity>
+            ))}
           </View>
 
           {/* Form */}

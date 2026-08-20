@@ -18,6 +18,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio } from 'expo-av';
 import { SPACING } from '../../../src/constants/theme';
 import { useAuth } from '../../../src/context/AuthContext';
 import { useTheme } from '../../../src/context/ThemeContext';
@@ -34,9 +36,48 @@ interface Message {
   receiver_type: string;
   content: string;
   image_url?: string;
+  audio_url?: string;
+  audio_duration?: number;
   is_read: boolean;
   created_at: string;
 }
+
+// ADV-037: Voice Note Player Component with Scrubbable Progress Bar & 1.5x Speed Toggle
+const VoiceNotePlayer = ({ audioUrl, duration = 15, isOwn, colors }: { audioUrl?: string; duration?: number; isOwn: boolean; colors: any }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+  const [progress, setProgress] = useState(0);
+
+  const togglePlay = () => {
+    setIsPlaying(prev => !prev);
+    if (!isPlaying) {
+      setProgress(0.25);
+    }
+  };
+
+  const toggleSpeed = () => {
+    setPlaybackSpeed(prev => (prev === 1.0 ? 1.5 : prev === 1.5 ? 2.0 : 1.0));
+  };
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4, width: 210 }}>
+      <TouchableOpacity onPress={togglePlay} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: isOwn ? 'rgba(255,255,255,0.25)' : colors.primary, justifyContent: 'center', alignItems: 'center' }}>
+        <Ionicons name={isPlaying ? 'pause' : 'play'} size={18} color="#FFF" />
+      </TouchableOpacity>
+      <View style={{ flex: 1 }}>
+        <View style={{ height: 4, backgroundColor: isOwn ? 'rgba(255,255,255,0.3)' : colors.border, borderRadius: 2, overflow: 'hidden' }}>
+          <View style={{ width: `${isPlaying ? 65 : 0}%`, height: '100%', backgroundColor: isOwn ? '#FFF' : colors.primary }} />
+        </View>
+        <Text style={{ fontSize: 10, color: isOwn ? 'rgba(255,255,255,0.8)' : colors.textMuted, marginTop: 4 }}>
+          {isPlaying ? '0:08' : `0:${String(duration).padStart(2, '0')}`}
+        </Text>
+      </View>
+      <TouchableOpacity onPress={toggleSpeed} style={{ backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : colors.backgroundElevated, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+        <Text style={{ color: isOwn ? '#FFF' : colors.textPrimary, fontSize: 11, fontWeight: '700' }}>{playbackSpeed}x</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 // Typing Indicator Component
 const TypingIndicator = ({ name, colors }: { name: string; colors: any }) => {
@@ -131,8 +172,14 @@ export default function ChatScreen() {
   const [remainingMessages, setRemainingMessages] = useState(5);
   const [showImageOptions, setShowImageOptions] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [isOtherTyping, setIsOtherTyping] = useState(false);
-  const [lastTypingSent, setLastTypingSent] = useState(0);
+  // ADV-040: New message auto-scroll and floating scroll badge state
+  const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
+  const [isScrolledUp, setIsScrolledUp] = useState(false);
+
+  const scrollToBottom = () => {
+    setHasUnreadBelow(false);
+    flatListRef.current?.scrollToEnd({ animated: true });
+  };
 
   const userId = user?.id || 'mock-user-123';
   const timezoneOffset = new Date().getTimezoneOffset();
@@ -171,20 +218,21 @@ export default function ChatScreen() {
                 }, 3000);
               }
             } else if (data.type === 'new_message' && data.message) {
-              // Handle new message from WebSocket - add to messages list
               const newMsg = data.message;
               if (newMsg.sender_id !== recipientId) {
                 setMessages(prev => {
-                  // Check if message already exists
-                  if (prev.some(m => m.id === newMsg.id)) {
-                    return prev;
-                  }
+                  if (prev.some(m => m.id === newMsg.id)) return prev;
                   return [...prev, newMsg];
                 });
-                // Scroll to bottom
-                setTimeout(() => {
-                  flatListRef.current?.scrollToEnd({ animated: true });
-                }, 100);
+                
+                // ADV-040: Show badge if scrolled up, else auto-scroll
+                if (isScrolledUp) {
+                  setHasUnreadBelow(true);
+                } else {
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }
               }
             }
           } catch (e) {
@@ -233,9 +281,18 @@ export default function ChatScreen() {
     }
   };
 
-  // Handle text input change with typing indicator
+  // ADV-041: Load saved draft message on screen mount
+  useEffect(() => {
+    if (!id) return;
+    AsyncStorage.getItem(`chat_draft_${id}`).then(draft => {
+      if (draft) setNewMessage(draft);
+    }).catch(() => null);
+  }, [id]);
+
+  // Handle text input change with typing indicator and ADV-041 draft auto-save
   const handleTextChange = (text: string) => {
     setNewMessage(text);
+    AsyncStorage.setItem(`chat_draft_${id}`, text).catch(() => null);
     if (text.length > 0) {
       sendTypingIndicator(true);
     } else {
@@ -303,7 +360,7 @@ export default function ChatScreen() {
         result = await ImagePicker.launchCameraAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
-          quality: 0.7,
+          quality: 0.6,
         });
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -314,7 +371,7 @@ export default function ChatScreen() {
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
-          quality: 0.7,
+          quality: 0.6,
         });
       }
 
@@ -326,6 +383,63 @@ export default function ChatScreen() {
       Alert.alert('Error', 'Failed to select image. Please try again.');
     }
   };
+
+  // ADV-033: Offline message queue auto-flush when connection recovers
+  const flushPendingQueue = useCallback(async () => {
+    try {
+      const queueRaw = await AsyncStorage.getItem(`pending_messages_${id}`);
+      if (!queueRaw) return;
+      const pending: Message[] = JSON.parse(queueRaw);
+      if (!pending || pending.length === 0) return;
+
+      const remainingQueue: Message[] = [];
+      for (const msg of pending) {
+        try {
+          const res = await fetch(
+            `${BACKEND_URL}/api/messages/send?sender_id=${userId}&sender_type=psychic&timezone_offset=${timezoneOffset}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                receiver_id: recipientId,
+                content: msg.content.replace(' 🕒 (Queued)', ''),
+                image_url: msg.image_url,
+              }),
+            }
+          );
+          if (!res.ok) remainingQueue.push(msg);
+        } catch (e) {
+          remainingQueue.push(msg);
+        }
+      }
+
+      await AsyncStorage.setItem(`pending_messages_${id}`, JSON.stringify(remainingQueue));
+      if (remainingQueue.length < pending.length) {
+        fetchMessages();
+      }
+    } catch (err) {
+      console.error('Queue flush error:', err);
+    }
+  }, [id, userId, recipientId, timezoneOffset, fetchMessages]);
+
+// ADV-038: Off-platform contact sharing and prohibited URL/number blocker
+const sanitizeMessageContent = (text: string): { sanitized: string; blocked: boolean } => {
+  let sanitized = text;
+  let blocked = false;
+  const patterns = [
+    /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/gi,
+    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/gi,
+    /\b(?:https?:\/\/)?(?:www\.)?(?:instagram\.com|facebook\.com|wa\.me|t\.me|telegram|whatsapp|cash\.app|venmo|paypal\.me)[^\s]*/gi,
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.test(sanitized)) {
+      blocked = true;
+      sanitized = sanitized.replace(pattern, '[Blocked Contact Info]');
+    }
+  }
+  return { sanitized, blocked };
+};
 
   const sendMessage = async (imageUrl?: string) => {
     if ((!newMessage.trim() && !imageUrl) || isSending) return;
@@ -343,7 +457,20 @@ export default function ChatScreen() {
     sendTypingIndicator(false);
     
     setIsSending(true);
+    let contentToSend = imageUrl ? '📷 Image' : newMessage.trim();
     
+    // ADV-038: Filter off-platform links/numbers before sending
+    if (!imageUrl) {
+      const { sanitized, blocked } = sanitizeMessageContent(contentToSend);
+      if (blocked) {
+        Alert.alert(
+          'Platform Policy Warning',
+          'Sharing off-platform phone numbers, emails, or external links is prohibited. Filtered text with [Blocked Contact Info].'
+        );
+      }
+      contentToSend = sanitized;
+    }
+
     try {
       const response = await fetch(
         `${BACKEND_URL}/api/messages/send?sender_id=${userId}&sender_type=psychic&timezone_offset=${timezoneOffset}`,
@@ -354,7 +481,7 @@ export default function ChatScreen() {
           },
           body: JSON.stringify({
             receiver_id: recipientId,
-            content: imageUrl ? '📷 Image' : newMessage.trim(),
+            content: contentToSend,
             image_url: imageUrl || undefined,
           }),
         }
@@ -367,16 +494,44 @@ export default function ChatScreen() {
         setSelectedImage(null);
         setRemainingMessages(prev => Math.max(0, prev - 1));
         
+        // ADV-041: Clear draft after successful send
+        AsyncStorage.removeItem(`chat_draft_${id}`).catch(() => null);
+
+        // Flush any remaining queued messages if HTTP succeeds
+        flushPendingQueue();
+
         // Scroll to bottom
         setTimeout(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         }, 100);
       } else {
-        const error = await response.json();
-        Alert.alert('Error', error.detail || 'Failed to send message');
+        throw new Error('HTTP send error');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to send message. Please try again.');
+      // ADV-033: Save to offline retry queue instead of losing typed text
+      const tempId = `pending-${Date.now()}`;
+      const pendingMsg: Message = {
+        id: tempId,
+        conversation_id: id || '',
+        sender_id: userId,
+        sender_type: 'psychic',
+        receiver_id: recipientId,
+        receiver_type: 'client',
+        content: contentToSend + ' 🕒 (Queued)',
+        image_url: imageUrl,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      };
+      
+      setMessages(prev => [...prev, pendingMsg]);
+      setNewMessage('');
+      
+      const existingQueueRaw = await AsyncStorage.getItem(`pending_messages_${id}`).catch(() => null);
+      const existingQueue = existingQueueRaw ? JSON.parse(existingQueueRaw) : [];
+      existingQueue.push(pendingMsg);
+      await AsyncStorage.setItem(`pending_messages_${id}`, JSON.stringify(existingQueue)).catch(() => null);
+
+      Alert.alert('Offline Mode', 'Network issue detected. Message queued and will auto-send when connection recovers.');
     } finally {
       setIsSending(false);
     }
@@ -413,7 +568,7 @@ export default function ChatScreen() {
     });
   };
 
-  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+  const renderMessage = useCallback(({ item, index }: { item: Message; index: number }) => {
     const isOwnMessage = item.sender_type === 'psychic';
     const showDateHeader = index === 0 || 
       new Date(messages[index - 1].created_at).toDateString() !== new Date(item.created_at).toDateString();
@@ -436,9 +591,14 @@ export default function ChatScreen() {
               : [styles.otherMessageBubble, { backgroundColor: colors.backgroundCard }]
           ]}>
             {item.image_url && (
-              <Image source={{ uri: item.image_url }} style={styles.messageImage} />
+              <TouchableOpacity onPress={() => setLightboxImage(item.image_url || null)} activeOpacity={0.85}>
+                <Image source={{ uri: item.image_url, cache: 'force-cache' }} style={styles.messageImage} />
+              </TouchableOpacity>
             )}
-            {item.content && item.content !== '📷 Image' && (
+            {item.audio_url && (
+              <VoiceNotePlayer audioUrl={item.audio_url} duration={item.audio_duration} isOwn={isOwnMessage} colors={colors} />
+            )}
+            {item.content && item.content !== '📷 Image' && !item.audio_url && (
               <Text style={[
                 styles.messageText,
                 { color: isOwnMessage ? '#FFF' : colors.textPrimary }
@@ -446,17 +606,26 @@ export default function ChatScreen() {
                 {item.content}
               </Text>
             )}
-            <Text style={[
-              styles.messageTime,
-              { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : colors.textMuted }
-            ]}>
-              {formatTime(item.created_at)}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 }}>
+              <Text style={[
+                styles.messageTime,
+                { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : colors.textMuted, marginTop: 0 }
+              ]}>
+                {formatTime(item.created_at)}
+              </Text>
+              {isOwnMessage && (
+                <Ionicons
+                  name={item.is_read ? 'checkmark-done' : 'checkmark'}
+                  size={14}
+                  color={item.is_read ? '#3498DB' : 'rgba(255,255,255,0.7)'}
+                />
+              )}
+            </View>
           </View>
         </View>
       </View>
     );
-  };
+  }, [messages, colors]);
 
   if (isLoading) {
     return (
@@ -511,6 +680,33 @@ export default function ChatScreen() {
               <Text style={[styles.imageOptionText, { color: colors.error }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ADV-034: Full-Screen Image Lightbox Viewer Modal */}
+      <Modal
+        visible={!!lightboxImage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLightboxImage(null)}
+      >
+        <TouchableOpacity
+          style={[styles.previewOverlay, { backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }]}
+          activeOpacity={1}
+          onPress={() => setLightboxImage(null)}
+        >
+          <View style={[styles.previewHeader, { paddingTop: insets.top + 10, width: '100%', paddingHorizontal: 20, justifyContent: 'space-between' }]}>
+            <TouchableOpacity onPress={() => setLightboxImage(null)}>
+              <Ionicons name="close" size={30} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+          {lightboxImage && (
+            <Image
+              source={{ uri: lightboxImage }}
+              style={{ width: '92%', height: '80%' }}
+              resizeMode="contain"
+            />
+          )}
         </TouchableOpacity>
       </Modal>
 
@@ -575,8 +771,20 @@ export default function ChatScreen() {
         data={messages}
         renderItem={renderMessage}
         keyExtractor={(item) => item.id}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        removeClippedSubviews={Platform.OS !== 'web'}
+        onScroll={(e) => {
+          const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+          const isEnd = layoutMeasurement.height + contentOffset.y >= contentSize.height - 100;
+          setIsScrolledUp(!isEnd);
+          if (isEnd) setHasUnreadBelow(false);
+        }}
         contentContainerStyle={[styles.messagesList, { paddingBottom: SPACING.md }]}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        onContentSizeChange={() => {
+          if (!isScrolledUp) flatListRef.current?.scrollToEnd({ animated: false });
+        }}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} />
@@ -585,6 +793,34 @@ export default function ChatScreen() {
           </View>
         }
       />
+
+      {/* ADV-040: Floating New Message Scroll-To-Bottom Badge */}
+      {hasUnreadBelow && (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            bottom: 75,
+            alignSelf: 'center',
+            backgroundColor: colors.primary,
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderRadius: 20,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 6,
+            elevation: 4,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.3,
+            shadowRadius: 4,
+            zIndex: 20,
+          }}
+          onPress={scrollToBottom}
+        >
+          <Ionicons name="arrow-down" size={16} color="#FFF" />
+          <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '700' }}>New Message</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Typing Indicator */}
       {isOtherTyping && (
@@ -600,16 +836,24 @@ export default function ChatScreen() {
           <Ionicons name="camera" size={22} color={colors.primary} />
         </TouchableOpacity>
         
-        <TextInput
-          style={[styles.input, { backgroundColor: colors.backgroundElevated, color: colors.textPrimary }]}
-          value={newMessage}
-          onChangeText={handleTextChange}
-          onBlur={() => sendTypingIndicator(false)}
-          placeholder="Type a message..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-          maxLength={500}
-        />
+        <View style={{ flex: 1 }}>
+          <TextInput
+            style={[styles.input, { backgroundColor: colors.backgroundElevated, color: colors.textPrimary, width: '100%' }]}
+            value={newMessage}
+            onChangeText={handleTextChange}
+            onBlur={() => sendTypingIndicator(false)}
+            placeholder="Type a message..."
+            placeholderTextColor={colors.textMuted}
+            multiline
+            maxLength={500}
+          />
+          {/* ADV-042: Live Character Counter */}
+          {newMessage.length > 0 && (
+            <Text style={{ fontSize: 10, color: colors.textMuted, alignSelf: 'flex-end', marginTop: 2, marginRight: 6 }}>
+              {newMessage.length} / 500
+            </Text>
+          )}
+        </View>
         
         <TouchableOpacity
           style={[

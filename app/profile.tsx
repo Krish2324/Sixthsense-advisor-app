@@ -31,6 +31,8 @@ export default function ProfileScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showImageOptions, setShowImageOptions] = useState(false);
+  // ADV-062: Video bio preview modal state
+  const [showVideoModal, setShowVideoModal] = useState(false);
   
   // Profile form state
   const [name, setName] = useState(psychic?.name || '');
@@ -73,7 +75,7 @@ export default function ProfileScreen() {
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.8,
+          quality: 0.6,
         });
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -85,7 +87,7 @@ export default function ProfileScreen() {
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.8,
+          quality: 0.6,
         });
       }
 
@@ -217,7 +219,40 @@ export default function ProfileScreen() {
             </View>
           </TouchableOpacity>
           <Text style={[styles.changePhotoText, { color: colors.primary }]}>Tap to change photo</Text>
+          
+          {/* ADV-062: Video Bio Preview Button */}
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.primary + '20', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginTop: 10 }}
+            onPress={() => setShowVideoModal(true)}
+          >
+            <Ionicons name="play-circle" size={18} color={colors.primary} />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.primary }}>Preview Video Greeting</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Video Greeting Preview Modal */}
+        <Modal
+          visible={showVideoModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowVideoModal(false)}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+            <View style={{ width: '100%', backgroundColor: colors.backgroundCard, borderRadius: 16, padding: 20, alignItems: 'center' }}>
+              <Ionicons name="videocam" size={48} color={colors.primary} style={{ marginBottom: 12 }} />
+              <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary, marginBottom: 6 }}>Video Greeting Preview</Text>
+              <Text style={{ fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: 20 }}>
+                This is how clients experience your intro video when viewing your advisor profile card.
+              </Text>
+              <TouchableOpacity
+                style={{ backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 }}
+                onPress={() => setShowVideoModal(false)}
+              >
+                <Text style={{ color: '#FFF', fontWeight: '600' }}>Close Preview</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
 
         {/* Contact Info from Application (Read-only) */}
         <View style={styles.section}>
@@ -267,7 +302,13 @@ export default function ProfileScreen() {
           </View>
           
           <View style={[styles.inputContainer, { backgroundColor: colors.backgroundCard }]}>
-            <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Bio</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={[styles.inputLabel, { color: colors.textMuted }]}>Bio</Text>
+              {/* ADV-058: Live Bio Character Counter */}
+              <Text style={{ fontSize: 11, color: bio.length >= 480 ? colors.error : colors.textMuted }}>
+                {bio.length} / 500
+              </Text>
+            </View>
             <TextInput
               style={[styles.textArea, { color: colors.textPrimary, borderColor: colors.border }]}
               value={bio}
@@ -276,6 +317,7 @@ export default function ProfileScreen() {
               placeholderTextColor={colors.textMuted}
               multiline
               numberOfLines={4}
+              maxLength={500}
               textAlignVertical="top"
             />
           </View>

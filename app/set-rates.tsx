@@ -15,8 +15,8 @@ import { SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
 import { useAuth } from '../src/context/AuthContext';
 
-const MIN_RATE = 1.99;
-const MAX_RATE = 9.99;
+const MIN_RATE = 0.99;
+const MAX_RATE = 19.99;
 
 export default function SetRatesScreen() {
   const insets = useSafeAreaInsets();
@@ -100,6 +100,17 @@ export default function SetRatesScreen() {
             <Text style={[styles.infoBannerTitle, { color: colors.primary }]}>Earnings Split</Text>
             <Text style={[styles.infoBannerDesc, { color: colors.textSecondary }]}>
               You receive 40% of each session. Set competitive rates to attract more clients.
+            </Text>
+          </View>
+        </View>
+
+        {/* ADV-060: Rate Change Delay Warning Banner */}
+        <View style={[styles.infoBanner, { backgroundColor: colors.warning + '15', borderColor: colors.warning + '40', marginBottom: SPACING.lg }]}>
+          <Ionicons name="time" size={24} color={colors.warning} />
+          <View style={styles.infoBannerText}>
+            <Text style={[styles.infoBannerTitle, { color: colors.warning }]}>Rate Sync Delay Notice</Text>
+            <Text style={[styles.infoBannerDesc, { color: colors.textSecondary }]}>
+              Updated per-minute rates take up to 1 hour to propagate across client search listings and active cache nodes.
             </Text>
           </View>
         </View>

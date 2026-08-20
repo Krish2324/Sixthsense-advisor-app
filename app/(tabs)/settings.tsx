@@ -203,8 +203,9 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Logout */}
+        {/* Logout / ADV-069: Touch Ripple & Active Opacity Feedback */}
         <Pressable 
+          android_ripple={{ color: 'rgba(255, 71, 87, 0.25)' }}
           style={({ pressed }) => [
             styles.logoutButton,
             { backgroundColor: colors.error + '15' },

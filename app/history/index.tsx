@@ -149,6 +149,8 @@ export default function PsychicHistoryScreen() {
   const { colors } = useTheme();
   
   const [activeTab, setActiveTab] = useState<HistoryTab>((tab as HistoryTab) || 'chats');
+  // ADV-071: Session Rating Filter State
+  const [ratingFilter, setRatingFilter] = useState<'all' | '5' | '4' | '3'>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatHistory[]>([]);
@@ -248,7 +250,7 @@ export default function PsychicHistoryScreen() {
       })}
     >
       <Image
-        source={{ uri: item.client_avatar || 'https://via.placeholder.com/50' }}
+        source={{ uri: item.client_avatar || 'https://via.placeholder.com/50', cache: 'force-cache' }}
         style={styles.avatar}
       />
       <View style={styles.cardContent}>
@@ -273,7 +275,7 @@ export default function PsychicHistoryScreen() {
   const renderCallItem = ({ item }: { item: CallHistory }) => (
     <View style={[styles.historyCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
       <Image
-        source={{ uri: item.client_avatar || 'https://via.placeholder.com/50' }}
+        source={{ uri: item.client_avatar || 'https://via.placeholder.com/50', cache: 'force-cache' }}
         style={styles.avatar}
       />
       <View style={styles.cardContent}>
@@ -314,7 +316,7 @@ export default function PsychicHistoryScreen() {
   const renderRecordedItem = ({ item }: { item: RecordedReading }) => (
     <View style={[styles.historyCard, { backgroundColor: colors.backgroundCard, borderColor: colors.border }]}>
       <Image
-        source={{ uri: item.client_avatar || 'https://via.placeholder.com/50' }}
+        source={{ uri: item.client_avatar || 'https://via.placeholder.com/50', cache: 'force-cache' }}
         style={styles.avatar}
       />
       <View style={styles.cardContent}>
@@ -428,7 +430,33 @@ export default function PsychicHistoryScreen() {
         >
           <Ionicons name="film" size={18} color={activeTab === 'recorded' ? colors.primary : colors.textMuted} />
           <Text style={[styles.tabText, { color: activeTab === 'recorded' ? colors.primary : colors.textMuted }]}>Recorded</Text>
-        </TouchableOpacity>
+      </View>
+
+      {/* ADV-071: Session Rating Filter Pills */}
+      <View style={{ flexDirection: 'row', gap: 6, paddingHorizontal: SPACING.md, paddingVertical: 8, backgroundColor: colors.background }}>
+        {[
+          { id: 'all', label: 'All Ratings' },
+          { id: '5', label: '5 ⭐' },
+          { id: '4', label: '4 ⭐' },
+          { id: '3', label: '3 ⭐ & Below' },
+        ].map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            style={{
+              paddingHorizontal: 10,
+              paddingVertical: 4,
+              borderRadius: 14,
+              backgroundColor: ratingFilter === item.id ? colors.primary : colors.backgroundCard,
+              borderWidth: 1,
+              borderColor: ratingFilter === item.id ? colors.primary : colors.border,
+            }}
+            onPress={() => setRatingFilter(item.id as any)}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '600', color: ratingFilter === item.id ? '#FFF' : colors.textSecondary }}>
+              {item.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* Content */}
