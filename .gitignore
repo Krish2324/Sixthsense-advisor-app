@@ -72,3 +72,11 @@ Thumbs.db
 coverage/
 .nyc_output/
 *.tsbuildinfo
+
+# Temporary Media Recordings & Cache
+*.m4a
+*.wav
+*.pcm
+*.aac
+*.mp4
+*.MOV

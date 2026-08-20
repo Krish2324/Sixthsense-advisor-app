@@ -24,6 +24,10 @@
         }
       ],
       "services": {
+        "fcm_service": {
+          "status": 2,
+          "fcm_sender_id": "512681929226"
+        },
         "appinvite_service": {
           "other_platform_oauth_client": [
             {

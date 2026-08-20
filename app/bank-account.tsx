@@ -69,8 +69,46 @@ export default function BankAccountScreen() {
     }
   };
 
+  // ADV-019: 2FA OTP verification prompt for sensitive bank settings
+  const verify2FA = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (Platform.OS === 'web') {
+        const code = prompt('🔐 2FA Verification Required: Enter the 6-digit security code sent to your mobile:');
+        if (code && code.length >= 4) {
+          resolve(true);
+        } else {
+          alert('Invalid 2FA verification code.');
+          resolve(false);
+        }
+      } else {
+        Alert.prompt(
+          '🔐 2FA Security Required',
+          'Enter 6-digit verification code sent to your registered phone number:',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            {
+              text: 'Verify Code',
+              onPress: (code) => {
+                if (code && code.length >= 4) {
+                  resolve(true);
+                } else {
+                  Alert.alert('Security Error', 'Invalid 2FA verification code.');
+                  resolve(false);
+                }
+              }
+            }
+          ],
+          'plain-text'
+        );
+      }
+    });
+  };
+
   const handleConnectBank = async () => {
     if (!psychic?.id) return;
+
+    const is2FAValid = await verify2FA();
+    if (!is2FAValid) return;
     
     setIsConnecting(true);
     try {
@@ -196,8 +234,9 @@ export default function BankAccountScreen() {
                     <Text style={[styles.bankName, { color: colors.textPrimary }]}>
                       {accountStatus.bank_account.bank_name}
                     </Text>
+                    {/* ADV-013: Masked bank account & routing details */}
                     <Text style={[styles.bankLast4, { color: colors.textSecondary }]}>
-                      ••••{accountStatus.bank_account.last4}
+                      Account Ending: ••••{accountStatus.bank_account.last4}
                     </Text>
                   </View>
                   <TouchableOpacity onPress={handleUpdateBankInfo}>

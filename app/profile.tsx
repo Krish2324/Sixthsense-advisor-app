@@ -25,7 +25,7 @@ const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { psychic, updateProfile } = useAuth();
+  const { psychic, updateProfile, token } = useAuth();
   const { colors } = useTheme();
   
   const [isLoading, setIsLoading] = useState(false);
@@ -101,10 +101,13 @@ export default function ProfileScreen() {
   const handleSaveProfile = async () => {
     setIsSaving(true);
     try {
-      // Update profile via API
+      // ADV-017: Authenticated profile update API call
       const response = await fetch(`${BACKEND_URL}/api/auth/psychic/profile`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({
           psychic_id: psychic?.id,
           name,

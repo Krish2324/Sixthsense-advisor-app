@@ -14,4 +14,7 @@ config.cacheStores = [
 // Reduce the number of workers to decrease resource usage
 config.maxWorkers = 2;
 
+// ADV-004: Custom audio recording and db asset extensions
+config.resolver.assetExts.push('pcm', 'aac', 'db', 'm4a', 'wav');
+
 module.exports = config;

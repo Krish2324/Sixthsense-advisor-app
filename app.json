@@ -26,7 +26,8 @@
         "UIBackgroundModes": [
           "audio",
           "voip",
-          "remote-notification"
+          "remote-notification",
+          "fetch"
         ]
       },
       "config": {
@@ -99,6 +100,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {}
     }
   }
 }

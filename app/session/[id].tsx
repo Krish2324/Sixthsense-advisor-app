@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SPACING } from '../../src/constants/theme';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
+import { Audio } from 'expo-av';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const WS_URL = BACKEND_URL?.replace('https://', 'wss://').replace('http://', 'ws://');
@@ -45,10 +46,38 @@ export default function ActiveSessionChatScreen() {
   const [sessionDuration, setSessionDuration] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(true);
   const [clientIsTyping, setClientIsTyping] = useState(false);
+  // ADV-023: Audio route switcher state (speaker, earpiece, bluetooth)
+  const [audioRoute, setAudioRoute] = useState<'speaker' | 'earpiece' | 'bluetooth'>('speaker');
+
+  const toggleAudioRoute = async () => {
+    const routes: ('speaker' | 'earpiece' | 'bluetooth')[] = ['speaker', 'earpiece', 'bluetooth'];
+    const nextIndex = (routes.indexOf(audioRoute) + 1) % routes.length;
+    const nextRoute = routes[nextIndex];
+    setAudioRoute(nextRoute);
+
+    try {
+      if (nextRoute === 'speaker') {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true, staysActiveInBackground: true });
+      } else {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true, staysActiveInBackground: true });
+      }
+    } catch (e) {
+      console.error('Failed to change audio route:', e);
+    }
+  };
   
   const wsRef = useRef<WebSocket | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ADV-021: Call Keep & background audio mode
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      staysActiveInBackground: true,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+    }).catch(() => null);
+  }, []);
 
   // Session timer & 120-min cap (ADV-025)
   useEffect(() => {
@@ -333,9 +362,18 @@ export default function ActiveSessionChatScreen() {
         </View>
         
         {isSessionActive && (
-          <TouchableOpacity style={styles.endButton} onPress={handleEndSession}>
-            <Text style={styles.endButtonText}>End</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity style={styles.endButton} onPress={toggleAudioRoute}>
+              <Ionicons
+                name={audioRoute === 'speaker' ? 'volume-high' : audioRoute === 'bluetooth' ? 'bluetooth' : 'headset'}
+                size={18}
+                color="#FFF"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.endButton} onPress={handleEndSession}>
+              <Text style={styles.endButtonText}>End</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </LinearGradient>
 

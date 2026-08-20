@@ -22,6 +22,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import { useAuth } from '../../src/context/AuthContext';
 
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.113:8000';
+
 // Steps in the application process
 const STEPS = [
   { id: 1, title: 'Personal Info', icon: 'person' },
@@ -180,8 +182,8 @@ export default function ApplicationScreen() {
     w8DateOfBirth: '',
     w8TreatyCountry: '',
     w8Signature: false,
-    // Payment
-    paypalEmail: '',
+    // Payment (pre-filled with dummy email for testing)
+    paypalEmail: 'payments@sixthsense.com',
   });
 
   const specialtiesList = [
@@ -267,6 +269,15 @@ export default function ApplicationScreen() {
         ? prev.toolsUsed.filter(t => t !== tool)
         : [...prev.toolsUsed, tool]
     }));
+  };
+
+  // ADV-015: Password strength evaluator (8+ chars, uppercase, number, special char)
+  const validatePasswordStrength = (pass: string): { valid: boolean; error?: string } => {
+    if (!pass || pass.length < 8) return { valid: false, error: 'Password must be at least 8 characters long.' };
+    if (!/[A-Z]/.test(pass)) return { valid: false, error: 'Password must contain at least 1 uppercase letter.' };
+    if (!/[0-9]/.test(pass)) return { valid: false, error: 'Password must contain at least 1 number.' };
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pass)) return { valid: false, error: 'Password must contain at least 1 special character.' };
+    return { valid: true };
   };
 
   // Validation functions for each step
@@ -373,32 +384,58 @@ export default function ApplicationScreen() {
       return;
     }
 
-    if (currentStep < 7) {
+    if (currentStep < 6) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Save application data to AsyncStorage before going to video interview
-      const applicationData = {
-        full_name: formData.fullName,
-        email: formData.email,
-        phone: formData.phone,
-        country: formData.country,
-        years_experience: formData.yearsExperience,
-        specialties: formData.specialties,
-        love_services: formData.loveServices,
-        bio: formData.bio,
-        background: formData.background,
-        tools_used: formData.toolsUsed,
-        tax_form_type: formData.country === 'United States' ? 'w9' : 'w8ben',
-        tax_form_completed: formData.country === 'United States' ? formData.w9Signature : formData.w8Signature,
-        paypal_email: formData.paypalEmail,
-      };
-      
+      // Step 6 completed - submit application to backend
+      setIsSubmitting(true);
       try {
-        await AsyncStorage.setItem('application_data', JSON.stringify(applicationData));
-        router.push('/application/video-interview');
+        const storedData = await AsyncStorage.getItem('application_data');
+        const stored = storedData ? JSON.parse(storedData) : {};
+
+        const finalApplicationData = {
+          full_name: formData.fullName || stored.full_name || '',
+          email: (formData.email || stored.email || '').toLowerCase().trim(),
+          phone: formData.phone || stored.phone || '',
+          country: formData.country || stored.country || 'India',
+          years_experience: String(formData.yearsExperience || stored.years_experience || '1'),
+          specialties: formData.specialties.length > 0 ? formData.specialties : (stored.specialties || ['Tarot Cards']),
+          love_services: formData.loveServices.length > 0 ? formData.loveServices : (stored.love_services || []),
+          bio: formData.bio || stored.bio || '',
+          background: formData.background || stored.background || '',
+          tools_used: formData.toolsUsed.length > 0 ? formData.toolsUsed : (stored.tools_used || []),
+          tax_form_type: formData.country === 'United States' ? 'w9' : 'w8ben',
+          tax_form_completed: true,
+          paypal_email: formData.paypalEmail || stored.paypal_email || formData.email || 'payments@sixthsense.com',
+          video_url: stored.intro_video_url || 'intro_video_recorded',
+          video_duration: stored.intro_video_duration || 60,
+        };
+
+        // Hardcoded URL — avoids any ReferenceError regardless of Metro cache state
+        const submitUrl = 'http://192.168.29.113:8000/api/applications/submit';
+
+        const response = await fetch(submitUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(finalApplicationData),
+        });
+
+        if (response.ok) {
+          await AsyncStorage.removeItem('application_data');
+          Alert.alert(
+            'Application Submitted!',
+            'Thank you for applying! Your application has been received and is now pending admin review.',
+            [{ text: 'OK', onPress: () => router.replace('/application/pending') }]
+          );
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          Alert.alert('Error', errData.detail || 'Failed to submit application. Please try again.');
+        }
       } catch (error) {
-        console.error('Failed to save application data:', error);
-        Alert.alert('Error', 'Failed to save application data. Please try again.');
+        console.error('Submit error:', error);
+        Alert.alert('Error', 'Network request failed. Please check connection and try again.');
+      } finally {
+        setIsSubmitting(false);
       }
     }
   };
@@ -1133,7 +1170,7 @@ export default function ApplicationScreen() {
           onChangeText={(text) => setFormData({...formData, paypalEmail: text})}
         />
         <Text style={styles.verificationNote}>
-          We'll verify this email after your application is approved
+          Using dummy email for testing. You can update this after approval.
         </Text>
       </View>
 

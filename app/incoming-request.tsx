@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
+import { Audio } from 'expo-av';
 
 const { width, height } = Dimensions.get('window');
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -36,6 +37,13 @@ export default function IncomingRequestScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   useEffect(() => {
+    // ADV-022: Configure high-priority incoming call audio ringtone & vibration
+    Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      shouldDuckAndroid: true,
+    }).catch(() => null);
+
     // Start vibration pattern
     if (Platform.OS !== 'web') {
       const pattern = [0, 500, 200, 500];

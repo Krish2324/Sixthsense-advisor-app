@@ -45,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const inactivityTimerRef = useRef<any>(null);
 
+  // ADV-014: Automatic 15-minute token expiration & session inactivity auto-logout
   const resetInactivityTimer = () => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     if (psychic) {

@@ -16,12 +16,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../src/context/ThemeContext';
 import { SPACING } from '../src/constants/theme';
 
-// Conditionally import Notifications to avoid Android build issues
+import Constants, { ExecutionEnvironment } from 'expo-constants';
+
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient || (Constants as any).appOwnership === 'expo';
+
+// Conditionally import Notifications to avoid Expo Go SDK 53 push warnings & build issues
 let Notifications: any = null;
-try {
-  Notifications = require('expo-notifications');
-} catch (e) {
-  console.log('expo-notifications not available');
+if (!isExpoGo && Platform.OS !== 'web') {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (e) {
+    console.log('expo-notifications not available');
+  }
 }
 
 export default function PermissionsScreen() {

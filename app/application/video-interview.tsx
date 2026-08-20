@@ -21,8 +21,13 @@ export default function VideoInterviewScreen() {
   const router = useRouter();
   const cameraRef = useRef<any>(null);
   
+  const [facing, setFacing] = useState<'front' | 'back'>('front');
   const [permission, requestPermission] = useCameraPermissions();
   const [isRecording, setIsRecording] = useState(false);
+
+  const toggleCameraFacing = () => {
+    setFacing(prev => (prev === 'front' ? 'back' : 'front'));
+  };
   const [recordedVideo, setRecordedVideo] = useState<string | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -118,8 +123,37 @@ export default function VideoInterviewScreen() {
       
       const applicationData = JSON.parse(storedData);
       
+      // Try to upload the actual video file if we have a real local file
+      let finalVideoUrl = recordedVideo || 'video_recorded_locally';
+      const isRealFile = recordedVideo && (recordedVideo.startsWith('file://') || recordedVideo.startsWith('/'));
+      
+      if (isRealFile && recordedVideo) {
+        try {
+          const formData = new FormData();
+          formData.append('file', {
+            uri: recordedVideo,
+            type: 'video/mp4',
+            name: 'advisor_video.mp4',
+          } as any);
+          
+          const uploadResponse = await fetch(`${BACKEND_URL}/api/applications/upload-video`, {
+            method: 'POST',
+            body: formData,
+          });
+          
+          if (uploadResponse.ok) {
+            const uploadResult = await uploadResponse.json();
+            finalVideoUrl = `${BACKEND_URL}${uploadResult.video_url}`;
+            console.log('Video uploaded successfully:', finalVideoUrl);
+          }
+        } catch (uploadError) {
+          console.log('Video upload failed, using placeholder:', uploadError);
+          // Continue with placeholder - will show "not uploaded" in admin
+        }
+      }
+      
       // Add video info
-      applicationData.video_url = recordedVideo || 'video_recorded_locally';
+      applicationData.video_url = finalVideoUrl;
       applicationData.video_duration = timeElapsed;
       
       // Submit to backend
@@ -157,6 +191,7 @@ export default function VideoInterviewScreen() {
     }
   };
 
+
   const handleRetake = () => {
     setRecordedVideo(null);
     setTimeElapsed(0);
@@ -191,7 +226,7 @@ export default function VideoInterviewScreen() {
       <CameraView
         ref={cameraRef}
         style={styles.camera}
-        facing="front"
+        facing={facing}
         mode="video"
       >
         {/* Header */}
@@ -208,6 +243,14 @@ export default function VideoInterviewScreen() {
             <View style={[styles.recordingDot, isRecording && styles.recordingDotActive]} />
             <Text style={styles.timerText}>{formatTime(timeElapsed)} / 5:00</Text>
           </View>
+
+          {/* Flip Camera Button */}
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={toggleCameraFacing}
+          >
+            <Ionicons name="camera-reverse" size={24} color="#FFF" />
+          </TouchableOpacity>
         </View>
 
         {/* Controls */}

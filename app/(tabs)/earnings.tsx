@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SPACING } from '../../src/constants/theme';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
+import { setSecureItem, getSecureItem } from '../../src/services/secureStorage';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -39,12 +40,15 @@ export default function EarningsScreen() {
       const response = await fetch(`${BACKEND_URL}/api/payments/psychic-earnings/${user?.id}`);
       if (response.ok) {
         const data = await response.json();
-        setEarnings({
+        const newEarnings = {
           available: data.available_balance || 0,
           pending: data.pending_balance || 0,
           lifetime: data.total_earnings || 0,
           totalTips: data.total_tips || 0,
-        });
+        };
+        setEarnings(newEarnings);
+        // ADV-018: Encrypted financial earnings cache
+        await setSecureItem('__6th_sense_earnings_cache', JSON.stringify(newEarnings));
       }
       
       // Mock recent transactions for demo

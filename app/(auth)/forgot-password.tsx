@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
+  ScrollView,
   Platform,
   Alert,
   ActivityIndicator,
@@ -27,8 +28,21 @@ export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  // ADV-016: 60-second cooldown timer state
+  const [cooldown, setCooldown] = useState(0);
+
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown(c => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   const handleResetPassword = async () => {
+    if (cooldown > 0) {
+      Alert.alert('Please Wait', `Please wait ${cooldown} seconds before requesting another reset code.`);
+      return;
+    }
+
     if (!email) {
       Alert.alert('Error', 'Please enter your email address');
       return;
@@ -44,11 +58,15 @@ export default function ForgotPasswordScreen() {
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/forgot-password`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Bypass-Tunnel-Reminder': 'true',
+        },
         body: JSON.stringify({ email }),
       });
 
       if (response.ok) {
+        setCooldown(60);
         setEmailSent(true);
       } else {
         const data = await response.json();
@@ -101,10 +119,17 @@ export default function ForgotPasswordScreen() {
         style={styles.gradient}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.keyboardView}
         >
-          <View style={[styles.content, { paddingTop: insets.top + 20 }]}>
+          <ScrollView
+            contentContainerStyle={[
+              styles.content,
+              { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24 }
+            ]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
               <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -148,13 +173,13 @@ export default function ForgotPasswordScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.footer}>
               <Text style={styles.footerText}>Remember your password?</Text>
               <TouchableOpacity onPress={() => router.back()}>
                 <Text style={styles.loginLink}>Login</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </LinearGradient>
     </View>
@@ -172,7 +197,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: 24,
   },
   backButton: {
@@ -235,8 +260,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   footer: {
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginTop: 'auto',
+    paddingTop: 40,
+    justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
     gap: 6,

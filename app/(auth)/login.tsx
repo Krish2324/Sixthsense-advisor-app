@@ -54,6 +54,9 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  // ADV-020: Failed attempts and 15-minute account lockout policy
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -62,6 +65,12 @@ export default function LoginScreen() {
   }, []);
 
   const handleLogin = async () => {
+    if (lockoutUntil && Date.now() < lockoutUntil) {
+      const remainingMins = Math.ceil((lockoutUntil - Date.now()) / 60000);
+      Alert.alert('Account Locked 🔒', `Too many failed login attempts. Account locked for ${remainingMins} more minutes.`);
+      return;
+    }
+
     if (!email || !password) {
       Alert.alert('Error', 'Please enter email and password');
       return;
@@ -141,8 +150,15 @@ export default function LoginScreen() {
                    errorMessage.toLowerCase().includes('password') ||
                    errorMessage.toLowerCase().includes('email') ||
                    errorMessage.toLowerCase().includes('unauthorized')) {
-          setLoginError('Invalid email or password. Please try again.');
-          Alert.alert('Login Failed', 'Invalid email or password. Please check your credentials and try again.');
+          const nextAttempts = failedAttempts + 1;
+          setFailedAttempts(nextAttempts);
+          if (nextAttempts >= 5) {
+            setLockoutUntil(Date.now() + 15 * 60 * 1000);
+            Alert.alert('Account Locked 🔒', 'Too many failed login attempts. Your account is temporarily locked for 15 minutes.');
+          } else {
+            setLoginError(`Invalid credentials (${5 - nextAttempts} attempts remaining before lockout).`);
+            Alert.alert('Login Failed', `Invalid email or password. ${5 - nextAttempts} attempts remaining.`);
+          }
         } else {
           setLoginError(errorMessage);
           Alert.alert('Login Failed', errorMessage);
@@ -235,7 +251,7 @@ export default function LoginScreen() {
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView 
           contentContainerStyle={[styles.content, { paddingTop: insets.top }]}
@@ -276,6 +292,7 @@ export default function LoginScreen() {
               />
             </View>
 
+            {/* ADV-012: Password visibility eye toggle */}
             <View style={styles.inputContainer}>
               <Ionicons name="lock-closed" size={20} color="rgba(255,255,255,0.5)" />
               <TextInput
@@ -286,7 +303,7 @@ export default function LoginScreen() {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
               />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons
                   name={showPassword ? 'eye-off' : 'eye'}
                   size={20}
@@ -451,12 +468,12 @@ const styles = StyleSheet.create({
     color: '#FFF',
   },
   footer: {
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginTop: 'auto',
+    paddingTop: 32,
+    justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
     gap: 6,
-    marginTop: 24,
     paddingBottom: 16,
   },
   footerText: {
