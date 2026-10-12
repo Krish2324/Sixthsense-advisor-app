@@ -175,6 +175,9 @@ export default function ChatScreen() {
   // ADV-040: New message auto-scroll and floating scroll badge state
   const [hasUnreadBelow, setHasUnreadBelow] = useState(false);
   const [isScrolledUp, setIsScrolledUp] = useState(false);
+  const [isOtherTyping, setIsOtherTyping] = useState(false);
+  const [lastTypingSent, setLastTypingSent] = useState(0);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const scrollToBottom = () => {
     setHasUnreadBelow(false);

@@ -18,6 +18,7 @@ import { SPACING } from '../../src/constants/theme';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { Audio } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 const WS_URL = BACKEND_URL?.replace('https://', 'wss://').replace('http://', 'ws://');

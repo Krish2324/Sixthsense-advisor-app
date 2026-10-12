@@ -430,6 +430,7 @@ export default function PsychicHistoryScreen() {
         >
           <Ionicons name="film" size={18} color={activeTab === 'recorded' ? colors.primary : colors.textMuted} />
           <Text style={[styles.tabText, { color: activeTab === 'recorded' ? colors.primary : colors.textMuted }]}>Recorded</Text>
+        </TouchableOpacity>
       </View>
 
       {/* ADV-071: Session Rating Filter Pills */}

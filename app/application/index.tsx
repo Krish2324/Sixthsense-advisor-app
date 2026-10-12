@@ -22,7 +22,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import { useAuth } from '../../src/context/AuthContext';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.113:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 
 // Steps in the application process
 const STEPS = [
@@ -61,6 +61,7 @@ export default function ApplicationScreen() {
   const [countrySearch, setCountrySearch] = useState('');
   const [introVideoRecorded, setIntroVideoRecorded] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   // W-8BEN Picker states
   const [showW8CountryPicker, setShowW8CountryPicker] = useState(false);
@@ -451,8 +452,7 @@ export default function ApplicationScreen() {
           video_duration: stored.intro_video_duration || 60,
         };
 
-        // Hardcoded URL — avoids any ReferenceError regardless of Metro cache state
-        const submitUrl = 'http://192.168.29.113:8000/api/applications/submit';
+        const submitUrl = `${BACKEND_URL}/api/applications/submit`;
 
         const response = await fetch(submitUrl, {
           method: 'POST',

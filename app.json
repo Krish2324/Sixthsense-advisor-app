@@ -2,7 +2,7 @@
   "expo": {
     "name": "Sixth Sense Advisors",
     "slug": "sixth-sense-advisors",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "sixthsenseadvisors",
@@ -40,7 +40,7 @@
         "backgroundColor": "#E8A0B8"
       },
       "package": "com.sixthsense.advisors",
-      "versionCode": 1,
+      "versionCode": 4,
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

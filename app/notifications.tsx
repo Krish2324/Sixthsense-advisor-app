@@ -254,6 +254,8 @@ export default function PsychicNotificationsScreen() {
         ) : (
           <View style={{ width: 80 }} />
         )}
+      </View>
+
       {/* ADV-067: Notification Category Filter Tabs */}
       <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, backgroundColor: colors.background }}>
         {[

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { saveAuthData, getAuthData, clearAuthData, setSecureItem } from '../services/secureStorage';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 mins inactivity auto-logout (ADV-014)
 
 export interface Psychic {

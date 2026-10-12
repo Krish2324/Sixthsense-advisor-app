@@ -33,7 +33,7 @@ const VIDEO_URL = 'https://assets.mixkit.co/videos/preview/mixkit-going-down-a-c
 const ADVISOR_LOGO_URL = require("../../assets/icon.png");
 
 // Backend URL from env
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 
 // Google OAuth Client IDs for Advisors app
 const GOOGLE_WEB_CLIENT_ID = '512681929226-37j50jbk2jvu09picvht72uhhdif2dut.apps.googleusercontent.com';
