@@ -194,8 +194,16 @@ export default function ApplicationScreen() {
     w8DateOfBirth: '',
     w8TreatyCountry: '',
     w8Signature: false,
-    // Payment (pre-filled with dummy email for testing)
-    paypalEmail: 'payments@sixthsense.com',
+    // Password for account creation
+    password: '',
+    confirmPassword: '',
+    // Payout details
+    bankName: '',
+    accountHolderName: '',
+    accountNumber: '',
+    routingNumber: '',
+    // Optional fallback
+    paypalEmail: '',
   });
 
   // ADV-056: Auto-save application draft whenever fields update
@@ -304,6 +312,12 @@ export default function ApplicationScreen() {
     if (!formData.fullName.trim()) return 'Please enter your full legal name';
     if (!formData.email.trim()) return 'Please enter your email address';
     if (!formData.email.includes('@')) return 'Please enter a valid email address';
+    if (!psychic) {
+      if (!formData.password) return 'Please create a secure password for your account';
+      const strength = validatePasswordStrength(formData.password);
+      if (!strength.valid) return strength.error || 'Password does not meet security requirements';
+      if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
+    }
     // Phone number is OPTIONAL - removed validation per Apple guidelines 5.1.1(v)
     if (!formData.country) return 'Please select your country of residence';
     return null;
@@ -380,8 +394,8 @@ export default function ApplicationScreen() {
   };
 
   const validateStep6 = (): string | null => {
-    if (!formData.paypalEmail.trim()) return 'Please enter your PayPal email address';
-    if (!formData.paypalEmail.includes('@')) return 'Please enter a valid PayPal email address';
+    // Payout and bank setup is optional during initial application
+    // Can be configured post-approval via Stripe Connect
     return null;
   };
 
@@ -447,7 +461,11 @@ export default function ApplicationScreen() {
           tools_used: formData.toolsUsed.length > 0 ? formData.toolsUsed : (stored.tools_used || []),
           tax_form_type: formData.country === 'United States' ? 'w9' : 'w8ben',
           tax_form_completed: true,
-          paypal_email: formData.paypalEmail || stored.paypal_email || formData.email || 'payments@sixthsense.com',
+          paypal_email: formData.paypalEmail || stored.paypal_email || undefined,
+          bank_name: formData.bankName || undefined,
+          account_number: formData.accountNumber || undefined,
+          routing_number: formData.routingNumber || undefined,
+          password: formData.password || undefined,
           video_url: stored.intro_video_url || 'intro_video_recorded',
           video_duration: stored.intro_video_duration || 60,
         };
@@ -576,22 +594,51 @@ export default function ApplicationScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Email input - show when user is not logged in */}
+      {/* Email and Password inputs - show when user is not logged in */}
       {!psychic && (
-        <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Email Address <Text style={styles.required}>*</Text></Text>
-          <Text style={styles.inputHint}>We'll use this to contact you about your application</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your email address"
-            placeholderTextColor={COLORS.textMuted}
-            value={formData.email}
-            onChangeText={(text) => setFormData({...formData, email: text.toLowerCase()})}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
+        <>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Email Address <Text style={styles.required}>*</Text></Text>
+            <Text style={styles.inputHint}>We'll use this to contact you and for your advisor login</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your email address"
+              placeholderTextColor={COLORS.textMuted}
+              value={formData.email}
+              onChangeText={(text) => setFormData({...formData, email: text.toLowerCase()})}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Create Password <Text style={styles.required}>*</Text></Text>
+            <Text style={styles.inputHint}>8+ chars, 1 uppercase, 1 number, 1 special character</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Create your advisor password"
+              placeholderTextColor={COLORS.textMuted}
+              secureTextEntry
+              value={formData.password}
+              onChangeText={(text) => setFormData({...formData, password: text})}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Confirm Password <Text style={styles.required}>*</Text></Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Re-enter your password"
+              placeholderTextColor={COLORS.textMuted}
+              secureTextEntry
+              value={formData.confirmPassword}
+              onChangeText={(text) => setFormData({...formData, confirmPassword: text})}
+              autoCapitalize="none"
+            />
+          </View>
+        </>
       )}
     </View>
   );
@@ -1180,44 +1227,73 @@ export default function ApplicationScreen() {
     }
   };
 
-  // Step 6: Payment (previously Step 5)
+  // Step 6: Direct Deposit & Payout Setup
   const renderStep6 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Payment Method</Text>
-      <Text style={styles.stepSubtitle}>How would you like to receive payments?</Text>
+      <Text style={styles.stepTitle}>Direct Deposit & Payout Setup</Text>
+      <Text style={styles.stepSubtitle}>Earnings are deposited directly to your bank account via Stripe Connect</Text>
 
       <View style={styles.paymentOption}>
         <View style={styles.paymentIcon}>
-          <Ionicons name="logo-paypal" size={32} color="#003087" />
+          <Ionicons name="business" size={32} color={COLORS.primary} />
         </View>
         <View style={styles.paymentInfo}>
-          <Text style={styles.paymentTitle}>PayPal</Text>
-          <Text style={styles.paymentDesc}>Fast, secure payments to your PayPal account</Text>
-        </View>
-        <View style={styles.radioSelected}>
-          <View style={styles.radioInner} />
+          <Text style={styles.paymentTitle}>Direct Bank Transfer (Stripe Connect)</Text>
+          <Text style={styles.paymentDesc}>Secure automated payouts directly to your checking or savings account</Text>
         </View>
       </View>
 
       <View style={styles.inputGroup}>
-        <Text style={styles.inputLabel}>PayPal Email Address <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.inputLabel}>Bank Name</Text>
         <TextInput
           style={styles.input}
-          placeholder="your@paypal-email.com"
+          placeholder="e.g. Chase, Bank of America, Wells Fargo"
           placeholderTextColor={COLORS.textMuted}
-          keyboardType="email-address"
-          value={formData.paypalEmail}
-          onChangeText={(text) => setFormData({...formData, paypalEmail: text})}
+          value={formData.bankName}
+          onChangeText={(text) => setFormData({...formData, bankName: text})}
         />
-        <Text style={styles.verificationNote}>
-          Using dummy email for testing. You can update this after approval.
-        </Text>
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Account Holder Legal Name</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Legal name on account"
+          placeholderTextColor={COLORS.textMuted}
+          value={formData.accountHolderName}
+          onChangeText={(text) => setFormData({...formData, accountHolderName: text})}
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Account Number</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter bank account number"
+          placeholderTextColor={COLORS.textMuted}
+          keyboardType="numeric"
+          secureTextEntry
+          value={formData.accountNumber}
+          onChangeText={(text) => setFormData({...formData, accountNumber: text})}
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Routing Number (ABA / Sort Code / IFSC)</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="9-digit routing number"
+          placeholderTextColor={COLORS.textMuted}
+          keyboardType="numeric"
+          value={formData.routingNumber}
+          onChangeText={(text) => setFormData({...formData, routingNumber: text})}
+        />
       </View>
 
       <View style={styles.infoBox}>
         <Ionicons name="information-circle" size={24} color={COLORS.info} />
         <Text style={styles.infoText}>
-          Withdrawals are processed weekly. You'll be asked to verify your PayPal account once approved.
+          You will also be able to connect or update your bank account seamlessly via Stripe Express Connect after your application is approved.
         </Text>
       </View>
     </View>

@@ -152,23 +152,48 @@ export default function ActiveSessionChatScreen() {
       ws.onopen = () => {
         console.log('WebSocket connected (Psychic)');
         setIsDisconnected(false);
+        // Explicitly join the conversation room
+        try {
+          ws.send(JSON.stringify({
+            type: 'join_conversation',
+            conversation_id: sessionId
+          }));
+        } catch (err) {
+          console.warn('Error joining conversation room:', err);
+        }
       };
       
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           
-          if (data.type === 'message' && data.conversation_id === sessionId) {
+          if ((data.type === 'new_message' || data.type === 'message') && (data.conversation_id === sessionId || !data.conversation_id)) {
+            const msgObj = data.message || data;
+            const isFromPsychic = msgObj.sender_id === currentPsychic?.id || data.sender === 'psychic';
             const newMessage: Message = {
-              id: data.id || `msg-${Date.now()}`,
-              text: data.content,
-              sender: 'client',
-              timestamp: new Date(data.timestamp || Date.now()),
+              id: msgObj.id || data.id || `msg-${Date.now()}`,
+              text: msgObj.content || data.content || data.text || '',
+              sender: isFromPsychic ? 'psychic' : 'client',
+              timestamp: new Date(msgObj.created_at || data.timestamp || Date.now()),
             };
-            setMessages(prev => [...prev, newMessage]);
+            setMessages(prev => {
+              if (prev.some(m => m.id === newMessage.id)) return prev;
+              return [...prev, newMessage];
+            });
             scrollToBottom();
-          } else if (data.type === 'typing' && data.conversation_id === sessionId) {
-            setClientIsTyping(data.is_typing);
+          } else if ((data.type === 'typing' || data.type === 'typing_indicator') && (data.conversation_id === sessionId || !data.conversation_id)) {
+            if (data.user_id !== currentPsychic?.id) {
+              setClientIsTyping(data.is_typing);
+            }
+          } else if (data.type === 'one_minute_warning') {
+            const warningMsg: Message = {
+              id: `warning-${Date.now()}`,
+              text: data.text || '⏰ This chat has approximately 1 minute remaining. Please inform the client that they can add more minutes if they would like to continue.',
+              sender: 'system',
+              timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, warningMsg]);
+            scrollToBottom();
           } else if (data.type === 'session_ended') {
             setIsSessionActive(false);
             Alert.alert('Session Ended', 'The client has ended the session.', [
@@ -210,7 +235,7 @@ export default function ActiveSessionChatScreen() {
     };
   }, [connectWebSocket]);
 
-  // Add welcome message on mount
+  // Add welcome message and fetch persisted message history on mount
   useEffect(() => {
     setMessages([{
       id: 'system-1',
@@ -218,7 +243,35 @@ export default function ActiveSessionChatScreen() {
       sender: 'system',
       timestamp: new Date(),
     }]);
-  }, [clientName]);
+
+    if (!sessionId) return;
+    const loadHistory = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/messages/conversation/${sessionId}?user_id=${currentPsychic?.id || 'advisor'}`);
+        if (res.ok) {
+          const historyData = await res.json();
+          if (Array.isArray(historyData) && historyData.length > 0) {
+            const loaded: Message[] = historyData.map((m: any) => ({
+              id: m.id,
+              text: m.content,
+              sender: m.sender_id === currentPsychic?.id ? 'psychic' : 'client',
+              timestamp: new Date(m.created_at || Date.now()),
+            }));
+            setMessages(prev => {
+              const map = new Map();
+              prev.forEach(m => map.set(m.id, m));
+              loaded.forEach(m => map.set(m.id, m));
+              return Array.from(map.values());
+            });
+            scrollToBottom();
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load session history:', e);
+      }
+    };
+    loadHistory();
+  }, [clientName, sessionId, currentPsychic?.id]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -343,7 +396,7 @@ export default function ActiveSessionChatScreen() {
 
   const navigateToSummary = () => {
     router.replace({
-      pathname: '/call-summary',
+      pathname: '/call-summary' as any,
       params: {
         duration: sessionDuration.toString(),
         earnings: calculateEarnings(),

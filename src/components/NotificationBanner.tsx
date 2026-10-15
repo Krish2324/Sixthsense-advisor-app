@@ -108,7 +108,7 @@ export default function NotificationBanner() {
   };
 
   const handlePress = () => {
-    router.push('/(tabs)/notifications');
+    router.push('/(tabs)/notifications' as any);
   };
 
   const getNotificationIcon = (type: string) => {

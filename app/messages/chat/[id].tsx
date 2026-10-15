@@ -163,7 +163,7 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const { colors } = useTheme();
   const wsRef = useRef<WebSocket | null>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<any>(null);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -208,7 +208,7 @@ export default function ChatScreen() {
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            if (data.type === 'typing_indicator' && data.user_id !== recipientId) {
+            if ((data.type === 'typing_indicator' || data.type === 'typing') && (data.user_id === recipientId || data.user_id !== userId)) {
               setIsOtherTyping(data.is_typing);
               
               // Auto-hide typing indicator after 3 seconds of no updates
@@ -220,9 +220,16 @@ export default function ChatScreen() {
                   setIsOtherTyping(false);
                 }, 3000);
               }
-            } else if (data.type === 'new_message' && data.message) {
-              const newMsg = data.message;
-              if (newMsg.sender_id !== recipientId) {
+            } else if ((data.type === 'new_message' || data.type === 'message') && (data.message || data.content)) {
+              const newMsg = data.message || {
+                id: data.id || `msg-${Date.now()}`,
+                conversation_id: data.conversation_id,
+                sender_id: data.sender_id,
+                receiver_id: data.receiver_id,
+                content: data.content || data.text,
+                created_at: data.created_at || data.timestamp || new Date().toISOString(),
+              };
+              if (newMsg.sender_id !== userId) {
                 setMessages(prev => {
                   if (prev.some(m => m.id === newMsg.id)) return prev;
                   return [...prev, newMsg];

@@ -100,7 +100,7 @@ export default function BankAccountScreen() {
             { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
             {
               text: 'Verify Code',
-              onPress: (code) => {
+              onPress: (code?: string) => {
                 if (code && code.length >= 4) {
                   resolve(true);
                 } else {

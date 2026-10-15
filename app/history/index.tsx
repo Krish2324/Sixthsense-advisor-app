@@ -295,7 +295,7 @@ export default function PsychicHistoryScreen() {
           <TouchableOpacity
             style={[styles.playButton, { backgroundColor: colors.primary + '15' }]}
             onPress={() => router.push({
-              pathname: '/play-recording',
+              pathname: '/play-recording' as any,
               params: { 
                 url: item.recording_url, 
                 type: item.call_type,
@@ -338,7 +338,7 @@ export default function PsychicHistoryScreen() {
         <TouchableOpacity
           style={[styles.playButton, { backgroundColor: colors.warning + '15' }]}
           onPress={() => router.push({
-            pathname: '/play-recording',
+            pathname: '/play-recording' as any,
             params: { 
               url: item.video_url, 
               type: 'recorded',
@@ -398,39 +398,12 @@ export default function PsychicHistoryScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Tabs */}
-      <View style={[styles.tabsContainer, { backgroundColor: colors.backgroundCard, borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'chats' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
-          onPress={() => setActiveTab('chats')}
-        >
-          <Ionicons name="chatbubbles" size={18} color={activeTab === 'chats' ? colors.primary : colors.textMuted} />
-          <Text style={[styles.tabText, { color: activeTab === 'chats' ? colors.primary : colors.textMuted }]}>Chats</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'calls' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
-          onPress={() => setActiveTab('calls')}
-        >
-          <Ionicons name="call" size={18} color={activeTab === 'calls' ? colors.primary : colors.textMuted} />
-          <Text style={[styles.tabText, { color: activeTab === 'calls' ? colors.primary : colors.textMuted }]}>Phone</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'videos' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
-          onPress={() => setActiveTab('videos')}
-        >
-          <Ionicons name="videocam" size={18} color={activeTab === 'videos' ? colors.primary : colors.textMuted} />
-          <Text style={[styles.tabText, { color: activeTab === 'videos' ? colors.primary : colors.textMuted }]}>Video</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'recorded' && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
-          onPress={() => setActiveTab('recorded')}
-        >
-          <Ionicons name="film" size={18} color={activeTab === 'recorded' ? colors.primary : colors.textMuted} />
-          <Text style={[styles.tabText, { color: activeTab === 'recorded' ? colors.primary : colors.textMuted }]}>Recorded</Text>
-        </TouchableOpacity>
+      {/* Header Title Banner */}
+      <View style={[styles.tabsContainer, { backgroundColor: colors.backgroundCard, borderBottomColor: colors.border, justifyContent: 'flex-start', paddingHorizontal: SPACING.md }]}>
+        <View style={[styles.tab, { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}>
+          <Ionicons name="chatbubbles" size={18} color={colors.primary} />
+          <Text style={[styles.tabText, { color: colors.primary }]}>Chat Readings</Text>
+        </View>
       </View>
 
       {/* ADV-071: Session Rating Filter Pills */}

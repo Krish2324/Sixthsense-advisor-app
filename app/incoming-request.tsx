@@ -28,6 +28,7 @@ export default function IncomingRequestScreen() {
   
   const requestId = params.requestId as string;
   const clientName = params.clientName as string || 'Client';
+  const clientType = params.clientType as string || 'NEW CLIENT';
   const sessionType = params.sessionType as string || 'chat';
   const rate = parseFloat(params.rate as string || '2.99');
   const minutes = parseInt(params.minutes as string || '5');
@@ -195,7 +196,26 @@ export default function IncomingRequestScreen() {
           <View style={[styles.pulseRing, styles.pulseRing2]} />
         </Animated.View>
 
-        <Text style={styles.clientName}>{clientName}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12 }}>
+          <Text style={styles.clientName}>{clientName}</Text>
+          <View style={{
+            paddingHorizontal: 8,
+            paddingVertical: 3,
+            borderRadius: 6,
+            backgroundColor: clientType === 'RETURNING CLIENT' ? '#27AE6033' : '#E67E2233',
+            borderWidth: 1,
+            borderColor: clientType === 'RETURNING CLIENT' ? '#27AE60' : '#E67E22',
+          }}>
+            <Text style={{
+              color: clientType === 'RETURNING CLIENT' ? '#2ECC71' : '#F39C12',
+              fontSize: 10,
+              fontWeight: '700',
+              letterSpacing: 0.5,
+            }}>
+              {clientType}
+            </Text>
+          </View>
+        </View>
         <View style={styles.sessionTypeContainer}>
           <Ionicons name={getSessionIcon() as any} size={20} color={colors.primary} />
           <Text style={styles.sessionTypeText}>

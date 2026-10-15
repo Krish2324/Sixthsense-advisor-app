@@ -299,6 +299,7 @@ export default function DashboardScreen() {
             params: {
               requestId: request.id,
               clientName: request.client_name || 'Client',
+              clientType: request.client_type || 'NEW CLIENT',
               sessionType: request.session_type || 'chat',
               rate: request.rate_per_minute?.toString() || '2.99',
               minutes: request.requested_minutes?.toString() || '5',

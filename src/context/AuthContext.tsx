@@ -1,8 +1,43 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { saveAuthData, getAuthData, clearAuthData, setSecureItem } from '../services/secureStorage';
+
+const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient || (Constants as any).appOwnership === 'expo';
+
+let Notifications: any = null;
+if (!isExpoGo && Platform.OS !== 'web') {
+  try {
+    Notifications = require('expo-notifications');
+  } catch (e) {
+    console.log('expo-notifications not available');
+  }
+}
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 mins inactivity auto-logout (ADV-014)
+
+// Register push token with backend
+async function registerPushToken(userId: string) {
+  if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
+  try {
+    const { status } = await Notifications.requestPermissionsAsync();
+    if (status !== 'granted') return;
+    const tokenResp = await Notifications.getDevicePushTokenAsync();
+    await fetch(`${BACKEND_URL}/api/push/register-push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: userId,
+        platform: Platform.OS,
+        device_token: tokenResp.data,
+      }),
+    });
+    console.log('Advisor push token registered successfully');
+  } catch (error) {
+    console.error('Failed to register advisor push token:', error);
+  }
+}
 
 export interface Psychic {
   id: string;
@@ -70,7 +105,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loadStoredAuth = async () => {
     try {
       const authData = await getAuthData();
-      if (authData.psychic) setPsychic(authData.psychic);
+      if (authData.psychic) {
+        setPsychic(authData.psychic);
+        if (authData.psychic.id) {
+          registerPushToken(authData.psychic.id);
+        }
+      }
       if (authData.token) setToken(authData.token);
     } catch (error) {
       console.error('Error loading auth:', error);
@@ -95,6 +135,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setToken(accessToken);
         await saveAuthData(accessToken, data.psychic);
         resetInactivityTimer();
+        if (data.psychic.id) {
+          registerPushToken(data.psychic.id);
+        }
         return { success: true };
       } else {
         return { success: false, error: data.detail || 'Login failed' };

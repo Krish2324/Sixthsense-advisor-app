@@ -30,7 +30,7 @@ export default function IntroVideoScreen() {
   const [recordedVideo, setRecordedVideo] = useState<string | null>(null);
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<any>(null);
 
   const toggleCameraFacing = () => {
     setFacing(prev => (prev === 'front' ? 'back' : 'front'));

@@ -68,7 +68,7 @@ export default function RecordAnswerScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [facing, setFacing] = useState<CameraType>('front');
   
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<any>(null);
 
   // Update psychic status to busy/available
   const updatePsychicStatus = async (status: 'available' | 'busy' | 'offline') => {

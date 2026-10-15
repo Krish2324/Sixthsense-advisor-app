@@ -126,8 +126,8 @@ export default function WithdrawScreen() {
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     
-    if (!amount || amount < 50) {
-      const msg = 'Minimum withdrawal is $50';
+    if (!amount || amount < 40) {
+      const msg = 'Minimum withdrawal is $40';
       Platform.OS === 'web' ? alert(msg) : Alert.alert('Invalid Amount', msg);
       return;
     }
@@ -139,7 +139,7 @@ export default function WithdrawScreen() {
     }
 
     // ADV-043: US ABA Routing Number Validation Check
-    if (paymentMethod === 'bank' && routingNumber.trim().length > 0) {
+    if (routingNumber.trim().length > 0) {
       if (!isValidABARouting(routingNumber.trim())) {
         const msg = 'Invalid US ABA Routing Number checksum. Please double-check your 9-digit routing number.';
         setRoutingError(msg);
@@ -157,7 +157,7 @@ export default function WithdrawScreen() {
         body: JSON.stringify({
           psychic_id: user?.id,
           amount: amount,
-          method: paymentMethod === 'bank' ? 'bank_transfer' : 'paypal',
+          method: 'bank_transfer',
         }),
       });
 
@@ -242,17 +242,17 @@ export default function WithdrawScreen() {
             />
           </View>
           {/* ADV-047: Minimum Withdrawal Threshold Guardrail */}
-          {withdrawAmount.length > 0 && parseFloat(withdrawAmount) < 50 ? (
+          {withdrawAmount.length > 0 && parseFloat(withdrawAmount) < 40 ? (
             <Text style={[styles.minNote, { color: colors.error, fontWeight: '600' }]}>
-              ⚠️ Amount must be at least $50.00 to request payout
+              ⚠️ Amount must be at least $40.00 to request payout
             </Text>
           ) : (
-            <Text style={[styles.minNote, { color: colors.textMuted }]}>Minimum withdrawal: $50.00</Text>
+            <Text style={[styles.minNote, { color: colors.textMuted }]}>Minimum withdrawal: $40.00</Text>
           )}
 
           {/* Quick Amount Buttons */}
           <View style={styles.quickAmounts}>
-            {[50, 100, 200, earnings.available].map((amount, index) => (
+            {[40, 100, 200, earnings.available].map((amount, index) => (
               <TouchableOpacity
                 key={index}
                 style={[
@@ -278,18 +278,16 @@ export default function WithdrawScreen() {
         <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Payment Method</Text>
           
-          <TouchableOpacity
+          <View
             style={[
               styles.methodOption,
-              { borderColor: paymentMethod === 'bank' ? colors.success : colors.border },
-              paymentMethod === 'bank' && { backgroundColor: colors.success + '10' },
+              { borderColor: colors.success, backgroundColor: colors.success + '10' },
             ]}
-            onPress={() => setPaymentMethod('bank')}
           >
-            <Ionicons name="business" size={24} color={paymentMethod === 'bank' ? colors.success : colors.textMuted} />
+            <Ionicons name="business" size={24} color={colors.success} />
             <View style={styles.methodInfo}>
-              <Text style={[styles.methodTitle, { color: colors.textPrimary }]}>Bank Transfer</Text>
-              <Text style={[styles.methodDesc, { color: colors.textMuted }]}>3-5 business days</Text>
+              <Text style={[styles.methodTitle, { color: colors.textPrimary }]}>Direct Bank Transfer</Text>
+              <Text style={[styles.methodDesc, { color: colors.textMuted }]}>Direct deposit via Stripe Connect (3-5 business days)</Text>
               <View style={styles.feeTagContainer}>
                 <View style={[styles.feeTag, { backgroundColor: colors.success + '20' }]}>
                   <Ionicons name="checkmark-circle" size={14} color={colors.success} />
@@ -297,46 +295,20 @@ export default function WithdrawScreen() {
                 </View>
               </View>
             </View>
-            {paymentMethod === 'bank' && (
-              <Ionicons name="checkmark-circle" size={24} color={colors.success} />
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.methodOption,
-              { borderColor: paymentMethod === 'paypal' ? colors.primary : colors.border },
-              paymentMethod === 'paypal' && { backgroundColor: colors.primary + '10' },
-            ]}
-            onPress={() => setPaymentMethod('paypal')}
-          >
-            <Ionicons name="logo-paypal" size={24} color={paymentMethod === 'paypal' ? colors.primary : colors.textMuted} />
-            <View style={styles.methodInfo}>
-              <Text style={[styles.methodTitle, { color: colors.textPrimary }]}>PayPal</Text>
-              <Text style={[styles.methodDesc, { color: colors.textMuted }]}>1-2 business days</Text>
-              <View style={styles.feeTagContainer}>
-                <View style={[styles.feeTag, { backgroundColor: colors.warning + '20' }]}>
-                  <Ionicons name="alert-circle" size={14} color={colors.warning} />
-                  <Text style={[styles.feeTagText, { color: colors.warning }]}>2.9% + $0.30 fee applies</Text>
-                </View>
-              </View>
-            </View>
-            {paymentMethod === 'paypal' && (
-              <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-            )}
-          </TouchableOpacity>
+            <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+          </View>
 
           {/* Fee Info Box */}
           <View style={[styles.feeInfoBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
             <Ionicons name="information-circle" size={20} color={colors.textMuted} />
             <Text style={[styles.feeInfoText, { color: colors.textMuted }]}>
-              Bank transfers are completely free! PayPal charges a small fee which will be deducted from your withdrawal amount.
+              Bank transfers and direct deposits are completely free with zero platform withdrawal fees.
             </Text>
           </View>
         </View>
 
         {/* Amount Summary */}
-        {parseFloat(withdrawAmount) >= 50 && (
+        {parseFloat(withdrawAmount) >= 40 && (
           <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
             <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Summary</Text>
             
@@ -345,18 +317,11 @@ export default function WithdrawScreen() {
               <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>${parseFloat(withdrawAmount).toFixed(2)}</Text>
             </View>
             
-            {paymentMethod === 'paypal' && (
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, { color: colors.error }]}>PayPal Fee (2.9% + $0.30)</Text>
-                <Text style={[styles.summaryValue, { color: colors.error }]}>-${getPayPalFee().toFixed(2)}</Text>
-              </View>
-            )}
-            
             <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
             
             <View style={styles.summaryRow}>
               <Text style={[styles.summaryLabelBold, { color: colors.textPrimary }]}>You'll Receive</Text>
-              <Text style={[styles.summaryValueBold, { color: colors.success }]}>${getAmountReceived().toFixed(2)}</Text>
+              <Text style={[styles.summaryValueBold, { color: colors.success }]}>${parseFloat(withdrawAmount).toFixed(2)}</Text>
             </View>
           </View>
         )}
