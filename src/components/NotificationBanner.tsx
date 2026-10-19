@@ -38,11 +38,11 @@ export default function NotificationBanner() {
     if (!psychic?.id) return;
     
     try {
-      const response = await fetch(`${BACKEND_URL}/api/notifications/user/${psychic.id}?limit=5`);
+      const response = await fetch(`${BACKEND_URL}/api/notifications/user/${psychic.id}?limit=10`);
       if (response.ok) {
         const data = await response.json();
         const unreadNotifications = (data.notifications || []).filter(
-          (n: Notification) => !n.is_read
+          (n: any) => !n.is_read && !n.read
         );
         setNotifications(unreadNotifications);
         setIsVisible(unreadNotifications.length > 0);
@@ -54,8 +54,8 @@ export default function NotificationBanner() {
 
   useEffect(() => {
     fetchNotifications();
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000);
+    // Refresh every 8 seconds for near-instant banner updates
+    const interval = setInterval(fetchNotifications, 8000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
@@ -108,7 +108,7 @@ export default function NotificationBanner() {
   };
 
   const handlePress = () => {
-    router.push('/(tabs)/notifications' as any);
+    router.push('/notifications' as any);
   };
 
   const getNotificationIcon = (type: string) => {

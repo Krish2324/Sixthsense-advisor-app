@@ -15,7 +15,7 @@ import { SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
 import { useAuth } from '../src/context/AuthContext';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 
 interface Notification {
   id: string;
@@ -37,6 +37,7 @@ export default function PsychicNotificationsScreen() {
   const { psychic } = useAuth();
   
   const psychicId = psychic?.id || '';
+  const psychicEmail = psychic?.email || '';
   
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,42 +46,41 @@ export default function PsychicNotificationsScreen() {
   const [activeCategory, setActiveCategory] = useState<'all' | 'sessions' | 'earnings' | 'system'>('all');
 
   const fetchNotifications = useCallback(async () => {
-    if (!psychicId) {
+    if (!psychicId && !psychicEmail) {
       setIsLoading(false);
       return;
     }
     
     try {
-      // Fetch both admin notifications AND message notifications
-      const [adminResponse, messageResponse] = await Promise.all([
-        // Admin notifications (announcements, promos, etc.)
+      const endpoints = [
         fetch(`${BACKEND_URL}/api/notifications/user/${psychicId}?user_type=psychic`),
-        // Message notifications from clients
         fetch(`${BACKEND_URL}/api/messages/notifications/${psychicId}?user_type=psychic`)
-      ]);
-      
-      let allNotifications: Notification[] = [];
-      
-      if (adminResponse.ok) {
-        const adminData = await adminResponse.json();
-        // Normalize admin notifications
-        const adminNotifs = (adminData.notifications || adminData || []).map((n: any) => ({
-          ...n,
-          notification_type: n.type || 'admin'
-        }));
-        allNotifications = [...allNotifications, ...adminNotifs];
+      ];
+      if (psychicEmail && psychicEmail !== psychicId) {
+        endpoints.push(fetch(`${BACKEND_URL}/api/notifications/user/${encodeURIComponent(psychicEmail)}?user_type=psychic`));
       }
       
-      if (messageResponse.ok) {
-        const messageData = await messageResponse.json();
-        const messageNotifs = (messageData || []).map((n: any) => ({
-          ...n,
-          notification_type: n.notification_type || 'message'
-        }));
-        allNotifications = [...allNotifications, ...messageNotifs];
+      const responses = await Promise.all(endpoints);
+      const mapById = new Map<string, Notification>();
+
+      for (const res of responses) {
+        if (!res.ok) continue;
+        try {
+          const data = await res.json();
+          const items = Array.isArray(data) ? data : (data.notifications || []);
+          for (const n of items) {
+            if (n && n.id) {
+              mapById.set(n.id, {
+                ...n,
+                is_read: Boolean(n.is_read ?? n.read ?? false),
+                notification_type: n.notification_type || n.type || 'admin'
+              });
+            }
+          }
+        } catch {}
       }
       
-      // Sort by date, newest first
+      const allNotifications = Array.from(mapById.values());
       allNotifications.sort((a, b) => 
         new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
@@ -143,7 +143,8 @@ export default function PsychicNotificationsScreen() {
     markAsRead(notification.id, notification.notification_type);
     
     // Navigate based on notification type
-    if (notification.notification_type === 'message' && notification.related_id) {
+    const nType = (notification.notification_type || notification.type || '').toLowerCase();
+    if (nType === 'message' && notification.related_id) {
       router.push({
         pathname: '/messages/chat/[id]',
         params: { 
@@ -152,8 +153,11 @@ export default function PsychicNotificationsScreen() {
           clientName: 'Client'
         }
       });
+    } else if (nType === 'reading' || nType === 'reading_request') {
+      router.push('/(tabs)/questions' as any);
+    } else if (nType === 'earning' || nType === 'earnings') {
+      router.push('/(tabs)/earnings' as any);
     }
-    // Admin notifications just mark as read, no navigation needed
   };
 
   const formatTime = (dateStr: string) => {
@@ -175,6 +179,9 @@ export default function PsychicNotificationsScreen() {
 
   const getNotificationIcon = (type?: string) => {
     switch (type) {
+      case 'earning':
+      case 'earnings':
+        return 'cash';
       case 'message':
         return 'chatbubble';
       case 'reading':
@@ -286,7 +293,20 @@ export default function PsychicNotificationsScreen() {
       <FlatList
         data={notifications.filter(n => {
           if (activeCategory === 'sessions') return n.notification_type === 'message' || n.notification_type === 'reading';
-          if (activeCategory === 'earnings') return n.notification_type === 'tip' || n.notification_type === 'payout';
+          if (activeCategory === 'earnings') {
+            const t = (n.notification_type || n.type || '').toLowerCase();
+            return (
+              t === 'earning' ||
+              t === 'earnings' ||
+              t === 'tip' ||
+              t === 'payout' ||
+              t === 'session_earnings' ||
+              n.title?.includes('💰') ||
+              n.title?.includes('Earnings') ||
+              n.title?.toLowerCase().includes('session completed') ||
+              n.title?.toLowerCase().includes('tip')
+            );
+          }
           if (activeCategory === 'system') return n.notification_type === 'admin' || n.notification_type === 'promo' || n.notification_type === 'announcement';
           return true;
         })}

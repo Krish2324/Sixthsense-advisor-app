@@ -1,16 +1,44 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useAuth } from '../../src/context/AuthContext';
 
-// ADV-063: Dynamic Unread Message & Pending Paid Question Badges
-const PENDING_READINGS_COUNT = 3;
-const UNREAD_MESSAGES_COUNT = 2;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 
 export default function TabsLayout() {
   const { colors } = useTheme();
-  
+  const { psychic } = useAuth();
+  const [pendingReadingsCount, setPendingReadingsCount] = useState<number>(0);
+
+  const fetchPendingCount = useCallback(async () => {
+    const pid = psychic?.id || psychic?.email;
+    if (!pid) {
+      setPendingReadingsCount(0);
+      return;
+    }
+    try {
+      const emailParam = psychic?.email ? `?email=${encodeURIComponent(psychic.email)}` : '';
+      const response = await fetch(`${BACKEND_URL}/api/psychic-portal/questions/${encodeURIComponent(pid)}${emailParam}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          const pending = data.filter((q: any) => q.status === 'pending');
+          setPendingReadingsCount(pending.length);
+        }
+      }
+    } catch {
+      // silently ignore network issues
+    }
+  }, [psychic?.id, psychic?.email]);
+
+  useEffect(() => {
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 10000);
+    return () => clearInterval(interval);
+  }, [fetchPendingCount]);
+
   return (
     <Tabs
       screenOptions={{
@@ -47,9 +75,9 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, size }) => (
             <View>
               <Ionicons name="book" size={size} color={color} />
-              {PENDING_READINGS_COUNT > 0 && (
+              {pendingReadingsCount > 0 && (
                 <View style={[styles.badge, { backgroundColor: colors.error }]}>
-                  <Text style={styles.badgeText}>{PENDING_READINGS_COUNT}</Text>
+                  <Text style={styles.badgeText}>{pendingReadingsCount > 99 ? '99+' : pendingReadingsCount}</Text>
                 </View>
               )}
             </View>

@@ -75,7 +75,8 @@ export default function ProfileScreen() {
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.6,
+          quality: 0.7,
+          base64: true,
         });
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -87,12 +88,39 @@ export default function ProfileScreen() {
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.6,
+          quality: 0.7,
+          base64: true,
         });
       }
 
       if (!result.canceled && result.assets[0]) {
-        setProfilePicture(result.assets[0].uri);
+        const asset = result.assets[0];
+        setProfilePicture(asset.uri);
+
+        // Upload to server storage to get network-accessible URL
+        if (asset.base64) {
+          try {
+            const uid = psychic?.id || psychic?.email || 'advisor';
+            const uploadRes = await fetch(`${BACKEND_URL}/api/storage/upload-base64`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: uid,
+                base64_data: asset.base64,
+                content_type: asset.mimeType || 'image/jpeg',
+                purpose: 'profile',
+              }),
+            });
+            if (uploadRes.ok) {
+              const uploadData = await uploadRes.json();
+              if (uploadData?.url) {
+                setProfilePicture(uploadData.url);
+              }
+            }
+          } catch (uploadErr) {
+            console.error('Failed to upload image to server:', uploadErr);
+          }
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -111,7 +139,7 @@ export default function ProfileScreen() {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          psychic_id: psychic?.id,
+          psychic_id: psychic?.id || psychic?.email,
           name,
           bio,
           profile_picture: profilePicture,

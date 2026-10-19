@@ -14,11 +14,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { SPACING } from '../../src/constants/theme';
 import { useTheme } from '../../src/context/ThemeContext';
+import { useAuth } from '../../src/context/AuthContext';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-
-// Mock psychic ID - in real app, get from auth context
-const MOCK_PSYCHIC_ID = 'psychic-1';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 
 interface Conversation {
   id: string;
@@ -38,6 +36,9 @@ export default function PsychicMessagesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
+  const { psychic, user } = useAuth();
+  
+  const currentPsychicId = psychic?.id || user?.id || 'psy-001';
   
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +49,7 @@ export default function PsychicMessagesScreen() {
       const timezoneOffset = new Date().getTimezoneOffset();
       
       const response = await fetch(
-        `${BACKEND_URL}/api/messages/conversations/${MOCK_PSYCHIC_ID}?user_type=psychic&timezone_offset=${timezoneOffset}`
+        `${BACKEND_URL}/api/messages/conversations/${currentPsychicId}?user_type=psychic&timezone_offset=${timezoneOffset}`
       );
       
       if (response.ok) {
@@ -56,12 +57,12 @@ export default function PsychicMessagesScreen() {
         setConversations(data);
       }
     } catch (error) {
-      console.error('Failed to fetch conversations:', error);
+      console.warn('Failed to fetch conversations:', error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [currentPsychicId]);
 
   useEffect(() => {
     fetchConversations();

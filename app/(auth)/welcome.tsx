@@ -28,7 +28,7 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1534796636912-3b95b3ab
 // Use local icon asset
 const ADVISOR_LOGO_URL = require("../../assets/icon.png");
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
@@ -63,26 +63,37 @@ export default function WelcomeScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Check hiring status on mount
+  // Check hiring status on mount safely
   useEffect(() => {
+    let isMounted = true;
     const checkHiringStatus = async () => {
       try {
-        const response = await fetch(`${BACKEND_URL}/api/admin/hiring-status`);
-        if (response.ok) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const response = await fetch(`${BACKEND_URL}/api/admin/hiring-status`, {
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' },
+        });
+        clearTimeout(timeoutId);
+        if (response.ok && isMounted) {
           const data = await response.json();
-          setIsHiring(data.is_hiring);
-          setHiringMessage(data.message || 'We are not currently hiring. Leave your email and we will contact you when positions open up.');
+          setIsHiring(data.is_hiring !== false);
+          if (data.message) {
+            setHiringMessage(data.message);
+          }
         }
       } catch (_error) {
-        console.error('Error checking hiring status');
-        // Default to hiring open if API fails
-        setIsHiring(true);
+        console.log('Hiring status check: defaulted to open');
+        if (isMounted) setIsHiring(true);
       } finally {
-        setCheckingHiring(false);
+        if (isMounted) setCheckingHiring(false);
       }
     };
     
     checkHiringStatus();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleJoinWaitlist = async () => {

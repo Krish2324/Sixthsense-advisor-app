@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,76 +13,117 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Video, ResizeMode } from 'expo-av';
 import { SPACING } from '../../src/constants/theme';
 import { useTheme } from '../../src/context/ThemeContext';
 
-// Mock readings data
-const MOCK_READINGS = [
-  {
-    id: '1',
-    clientName: 'Sarah M.',
-    question: 'Will I find love this year? I\'ve been single for 2 years...',
-    type: 'standard',
-    price: 12.00,
-    status: 'pending',
-    createdAt: '2 hours ago',
-    hasVideo: true,
-  },
-  {
-    id: '2',
-    clientName: 'Michael R.',
-    question: 'I need urgent guidance about my career decision...',
-    type: 'emergency',
-    price: 20.00,
-    status: 'pending',
-    createdAt: '30 mins ago',
-    hasVideo: false,
-  },
-  {
-    id: '3',
-    clientName: 'Jennifer K.',
-    question: 'What does the future hold for my relationship with my partner?',
-    type: 'standard',
-    price: 12.00,
-    status: 'pending',
-    createdAt: '1 hour ago',
-    hasVideo: true,
-  },
-  {
-    id: '4',
-    clientName: 'Emma L.',
-    question: 'What do the cards say about my relationship?',
-    type: 'standard',
-    price: 12.00,
-    status: 'completed',
-    createdAt: 'Yesterday',
-    hasVideo: true,
-  },
-];
+import { useAuth } from '../../src/context/AuthContext';
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+
+interface Reading {
+  id: string;
+  clientName: string;
+  question: string;
+  type: string;
+  price: number;
+  status: 'pending' | 'accepted' | 'completed';
+  createdAt: string;
+  hasVideo: boolean;
+  videoUrl?: string;
+  videoResponseUrl?: string;
+}
 
 export default function ReadingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { colors } = useTheme();
+  const { psychic } = useAuth();
   const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending');
   // ADV-073: Question Feed Pagination State
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
   const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [showRecordModal, setShowRecordModal] = useState(false);
-  const [selectedReading, setSelectedReading] = useState<typeof MOCK_READINGS[0] | null>(null);
+  const [selectedReading, setSelectedReading] = useState<Reading | null>(null);
+  const [selectedClientVideo, setSelectedClientVideo] = useState<{ url: string; clientName: string } | null>(null);
+  const [readings, setReadings] = useState<Reading[]>([]);
 
-  const pendingReadings = MOCK_READINGS.filter(r => r.status === 'pending');
-  const completedReadings = MOCK_READINGS.filter(r => r.status === 'completed');
+  const formatReadingDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins} mins ago`;
+      if (diffHours < 24) return `${diffHours} hours ago`;
+      if (diffDays === 1) return 'Yesterday';
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const fetchReadings = useCallback(async () => {
+    const pid = psychic?.id || psychic?.email;
+    if (!pid) {
+      setIsLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    try {
+      const emailParam = psychic?.email ? `?email=${encodeURIComponent(psychic.email)}` : '';
+      const response = await fetch(`${BACKEND_URL}/api/psychic-portal/questions/${encodeURIComponent(pid)}${emailParam}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setReadings(
+            data.map((q: any) => ({
+              id: q.id,
+              clientName: q.client_name || 'Client',
+              question: q.question || '',
+              type: q.type || 'standard',
+              price: Number(q.price || 12.0),
+              status: q.status || 'pending',
+              createdAt: formatReadingDate(q.created_at),
+              hasVideo: Boolean(q.has_video),
+              videoUrl: q.video_url,
+              videoResponseUrl: q.video_response_url,
+            }))
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching readings:', err);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  }, [psychic?.id, psychic?.email]);
+
+  useEffect(() => {
+    fetchReadings();
+    const interval = setInterval(fetchReadings, 10000);
+    return () => clearInterval(interval);
+  }, [fetchReadings]);
+
+  const pendingReadings = readings.filter(r => r.status === 'pending' || r.status === 'accepted');
+  const completedReadings = readings.filter(r => r.status === 'completed');
   
   const filteredReadings = activeTab === 'pending' ? pendingReadings : completedReadings;
 
   const onRefresh = () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
+    fetchReadings();
   };
 
-  const handleRecord = (reading: typeof MOCK_READINGS[0]) => {
+  const handleRecord = (reading: Reading) => {
     // Navigate to record answer screen
     router.push({
       pathname: '/record-answer',
@@ -90,11 +131,12 @@ export default function ReadingsScreen() {
         questionId: reading.id,
         clientName: reading.clientName,
         question: reading.question,
+        clientVideoUrl: reading.videoUrl || '',
       },
     });
   };
 
-  const renderReading = useCallback(({ item }: { item: typeof MOCK_READINGS[0] }) => (
+  const renderReading = useCallback(({ item }: { item: Reading }) => (
     <View style={[styles.readingCard, { backgroundColor: colors.backgroundCard }]}>
       {/* Header */}
       <View style={styles.readingHeader}>
@@ -126,12 +168,27 @@ export default function ReadingsScreen() {
       {/* Question */}
       <Text style={[styles.questionText, { color: colors.textSecondary }]} numberOfLines={2}>{item.question}</Text>
 
-      {/* Video indicator */}
+      {/* Video indicator - Tap to watch client's video */}
       {item.hasVideo && (
-        <View style={styles.videoIndicator}>
-          <Ionicons name="play-circle" size={16} color={colors.secondary} />
-          <Text style={[styles.videoText, { color: colors.secondary }]}>Client sent a video question</Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.videoIndicator, { backgroundColor: colors.secondary + '20', padding: 8, borderRadius: 8, marginTop: 8 }]}
+          activeOpacity={0.7}
+          onPress={() => {
+            if (item.videoUrl) {
+              setSelectedClientVideo({
+                url: item.videoUrl,
+                clientName: item.clientName,
+              });
+            } else {
+              Alert.alert('No Video', 'Client video file is not available.');
+            }
+          }}
+        >
+          <Ionicons name="play-circle" size={18} color={colors.secondary} />
+          <Text style={[styles.videoText, { color: colors.secondary, fontWeight: '700' }]}>
+            Watch Client's Video Question ▶
+          </Text>
+        </TouchableOpacity>
       )}
 
       {/* Footer */}
@@ -186,6 +243,52 @@ export default function ReadingsScreen() {
                 }}
               >
                 <Text style={styles.modalRecordText}>Start Recording</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Client Video Question Modal */}
+      <Modal
+        visible={!!selectedClientVideo}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedClientVideo(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ width: '100%', maxWidth: 450, backgroundColor: colors.backgroundCard, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.textPrimary }}>
+                  Client's Video Question
+                </Text>
+                <Text style={{ fontSize: 13, color: colors.textSecondary, marginTop: 2 }}>
+                  From {selectedClientVideo?.clientName}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedClientVideo(null)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={24} color={colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedClientVideo?.url ? (
+              <Video
+                source={{ uri: selectedClientVideo.url }}
+                style={{ width: '100%', height: 260, backgroundColor: '#000' }}
+                useNativeControls
+                resizeMode={ResizeMode.CONTAIN}
+                shouldPlay
+                isLooping={false}
+              />
+            ) : null}
+
+            <View style={{ padding: 16 }}>
+              <TouchableOpacity
+                style={{ backgroundColor: colors.primary, borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+                onPress={() => setSelectedClientVideo(null)}
+              >
+                <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>

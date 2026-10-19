@@ -9,6 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Modal,
+  Image,
+  Keyboard,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,15 +22,18 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import AgoraVideoCall from '../../src/components/AgoraVideoCall';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-const WS_URL = BACKEND_URL?.replace('https://', 'wss://').replace('http://', 'ws://');
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
 interface Message {
   id: string;
   text: string;
   sender: 'client' | 'psychic' | 'system';
   timestamp: Date;
+  type?: 'text' | 'image' | 'warning';
+  imageUrl?: string;
 }
 
 export default function ActiveSessionChatScreen() {
@@ -41,12 +47,27 @@ export default function ActiveSessionChatScreen() {
   const clientId = params.clientId as string;
   const clientName = params.clientName as string || 'Client';
   const rate = parseFloat(params.rate as string || '2.99');
+  const initialSessionType = ((params.sessionType as string) || 'chat').toLowerCase();
+
+  const [activeSessionType, setActiveSessionType] = useState<'chat' | 'phone' | 'video'>(
+    initialSessionType === 'video' ? 'video' : initialSessionType === 'phone' || initialSessionType === 'voice' ? 'phone' : 'chat'
+  );
+  const [showChatInCall, setShowChatInCall] = useState(false);
+  const cleanSessionId = String(sessionId || params.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 16);
+  const fallbackChannel = `sixthsense_${cleanSessionId}`;
+  const [agoraConfig, setAgoraConfig] = useState({
+    channel: (params.agoraChannel as string) || fallbackChannel,
+    appId: (params.agoraAppId as string) || 'adff706fa53f45529d871c60da335b84',
+    uid: parseInt((params.agoraUid as string) || '100002', 10),
+    token: (params.agoraToken as string) || '',
+  });
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [sessionDuration, setSessionDuration] = useState(0);
   const [isSessionActive, setIsSessionActive] = useState(true);
   const [clientIsTyping, setClientIsTyping] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   // ADV-023: Audio route switcher state (speaker, earpiece, bluetooth)
   const [audioRoute, setAudioRoute] = useState<'speaker' | 'earpiece' | 'bluetooth'>('speaker');
   // ADV-030: Mute indicator state
@@ -59,38 +80,19 @@ export default function ActiveSessionChatScreen() {
     setIsMuted(prev => !prev);
   };
 
-  const toggleAudioRoute = async () => {
+  const toggleAudioRoute = () => {
     const routes: ('speaker' | 'earpiece' | 'bluetooth')[] = ['speaker', 'earpiece', 'bluetooth'];
     const nextIndex = (routes.indexOf(audioRoute) + 1) % routes.length;
     const nextRoute = routes[nextIndex];
     setAudioRoute(nextRoute);
-
-    try {
-      if (nextRoute === 'speaker') {
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true, staysActiveInBackground: true });
-      } else {
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true, staysActiveInBackground: true });
-      }
-    } catch (e) {
-      console.error('Failed to change audio route:', e);
-    }
   };
   
   const wsRef = useRef<WebSocket | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<any>(null);
 
-  // ADV-021 & ADV-026: Call Keep, background audio mode & Acoustic Echo Cancellation (AEC)
+  // ADV-031: Load previous saved session duration if battery/app crashed
   useEffect(() => {
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      staysActiveInBackground: true,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: audioRoute === 'earpiece',
-    }).catch(() => null);
-
-    // ADV-031: Load previous saved session duration if battery/app crashed
     AsyncStorage.getItem(`session_duration_${sessionId}`).then(saved => {
       if (saved) {
         const parsed = parseInt(saved, 10);
@@ -99,6 +101,26 @@ export default function ActiveSessionChatScreen() {
         }
       }
     }).catch(() => null);
+
+    // Immediately fetch session details to ensure Agora credentials are ready
+    fetch(`${BACKEND_URL}/api/chat/${sessionId}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(sessData => {
+        if (!sessData) return;
+        if (sessData.session_type) {
+          const st = sessData.session_type === 'video' ? 'video' : sessData.session_type === 'phone' || sessData.session_type === 'voice' || sessData.session_type === 'audio' ? 'phone' : 'chat';
+          setActiveSessionType(st);
+        }
+        if (sessData.agora_channel) {
+          setAgoraConfig(prev => ({
+            channel: sessData.agora_channel || prev.channel,
+            appId: sessData.agora_app_id || prev.appId,
+            uid: sessData.psychic_uid || prev.uid,
+            token: sessData.psychic_token || prev.token,
+          }));
+        }
+      })
+      .catch(err => console.warn('Immediate advisor session fetch error:', err));
   }, [sessionId, audioRoute]);
 
   // Session timer & 120-min cap (ADV-025) + ADV-031 Auto-save duration
@@ -144,15 +166,81 @@ export default function ActiveSessionChatScreen() {
     connectWebSocket();
   };
 
+  const [billingSummary, setBillingSummary] = useState<{
+    visible: boolean;
+    endedBy: string;
+    durationSeconds: number;
+    ratePerMinute: number;
+    totalCost: number;
+    psychicEarnings: number;
+  } | null>(null);
+  const sessionEndedHandledRef = useRef(false);
+  const sessionDurationRef = useRef(0);
+  useEffect(() => {
+    sessionDurationRef.current = sessionDuration;
+  }, [sessionDuration]);
+
+  const finalizeAdvisorSessionUI = useCallback((summaryData: {
+    endedBy?: string;
+    durationSeconds?: number;
+    ratePerMinute?: number;
+    totalCost?: number;
+    psychicEarnings?: number;
+  }) => {
+    if (sessionEndedHandledRef.current) return;
+    sessionEndedHandledRef.current = true;
+    setIsSessionActive(false);
+
+    const durSecs = summaryData.durationSeconds || Math.max(1, sessionDurationRef.current);
+    const rateVal = summaryData.ratePerMinute || rate;
+    const costVal = summaryData.totalCost !== undefined
+      ? Number(summaryData.totalCost)
+      : Number((Math.max(1, durSecs / 60) * rateVal).toFixed(2));
+    const earnVal = summaryData.psychicEarnings !== undefined
+      ? Number(summaryData.psychicEarnings)
+      : Number((costVal * 0.4).toFixed(2));
+
+    const endMsg: Message = {
+      id: `sys-end-${Date.now()}`,
+      text: `Session ended • Client Charged: $${costVal.toFixed(2)} • Your Earnings: +$${earnVal.toFixed(2)}`,
+      sender: 'system',
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, endMsg]);
+    scrollToBottom();
+
+    setBillingSummary({
+      visible: true,
+      endedBy: summaryData.endedBy || 'advisor',
+      durationSeconds: durSecs,
+      ratePerMinute: rateVal,
+      totalCost: costVal,
+      psychicEarnings: earnVal,
+    });
+  }, [rate]);
+
+  // Keep latest handler in a ref so the WebSocket doesn't need to be recreated when state changes
+  const finalizeRef = useRef(finalizeAdvisorSessionUI);
+  useEffect(() => {
+    finalizeRef.current = finalizeAdvisorSessionUI;
+  }, [finalizeAdvisorSessionUI]);
+
+  const wsUnmountedRef = useRef(false);
+  const wsReconnectTimerRef = useRef<any>(null);
+
   const connectWebSocket = useCallback(() => {
-    if (!currentPsychic?.id) return;
+    if (!currentPsychic?.id || !WS_URL) return;
+    if (wsUnmountedRef.current || sessionEndedHandledRef.current) return;
+    // Avoid duplicate sockets
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
     try {
       const ws = new WebSocket(`${WS_URL}/api/ws/${currentPsychic.id}`);
       
       ws.onopen = () => {
         console.log('WebSocket connected (Psychic)');
         setIsDisconnected(false);
-        // Explicitly join the conversation room
         try {
           ws.send(JSON.stringify({
             type: 'join_conversation',
@@ -169,21 +257,30 @@ export default function ActiveSessionChatScreen() {
           
           if ((data.type === 'new_message' || data.type === 'message') && (data.conversation_id === sessionId || !data.conversation_id)) {
             const msgObj = data.message || data;
-            const isFromPsychic = msgObj.sender_id === currentPsychic?.id || data.sender === 'psychic';
+            const isFromPsychic = msgObj.sender_id === currentPsychic?.id || msgObj.sender_id === 'psy-001' || data.sender === 'psychic' || msgObj.sender_type === 'psychic';
+            const img = msgObj.image_url || data.image_url;
+            const isImage = msgObj.type === 'image' || data.type === 'image' || !!img;
             const newMessage: Message = {
               id: msgObj.id || data.id || `msg-${Date.now()}`,
-              text: msgObj.content || data.content || data.text || '',
+              text: isImage ? (img || msgObj.content || data.content || '[Photo]') : (msgObj.content || data.content || data.text || ''),
               sender: isFromPsychic ? 'psychic' : 'client',
               timestamp: new Date(msgObj.created_at || data.timestamp || Date.now()),
+              type: isImage ? 'image' : 'text',
+              imageUrl: img,
             };
             setMessages(prev => {
               if (prev.some(m => m.id === newMessage.id)) return prev;
               return [...prev, newMessage];
             });
+            setClientIsTyping(false);
             scrollToBottom();
+          } else if (data.type === 'partner_joined') {
+            console.log('✅ Client partner_joined received via WebSocket:', data);
+            setIsSessionActive(true);
           } else if ((data.type === 'typing' || data.type === 'typing_indicator') && (data.conversation_id === sessionId || !data.conversation_id)) {
-            if (data.user_id !== currentPsychic?.id) {
-              setClientIsTyping(data.is_typing);
+            if (data.user_id !== currentPsychic?.id && data.user_id !== 'psy-001') {
+              setClientIsTyping(Boolean(data.is_typing));
+              if (data.is_typing) scrollToBottom();
             }
           } else if (data.type === 'one_minute_warning') {
             const warningMsg: Message = {
@@ -195,45 +292,136 @@ export default function ActiveSessionChatScreen() {
             setMessages(prev => [...prev, warningMsg]);
             scrollToBottom();
           } else if (data.type === 'session_ended') {
-            setIsSessionActive(false);
-            Alert.alert('Session Ended', 'The client has ended the session.', [
-              { text: 'OK', onPress: () => navigateToSummary() }
-            ]);
+            if (!data.session_id || data.session_id === sessionId) {
+              finalizeRef.current({
+                endedBy: data.ended_by || 'client',
+                durationSeconds: data.duration_seconds || Math.round((data.duration_minutes || 1) * 60),
+                ratePerMinute: data.rate_per_minute || rate,
+                totalCost: data.total_cost,
+                psychicEarnings: data.psychic_earnings,
+              });
+            }
           }
         } catch (e) {
-          console.error('WebSocket message parse error:', e);
+          console.warn('WebSocket message parse error:', e);
         }
       };
       
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setIsDisconnected(true);
+      ws.onerror = () => {
+        // Network hiccup — onclose will handle reconnect. Use warn to avoid red error overlay.
+        if (!wsUnmountedRef.current) {
+          console.warn('WebSocket connection issue (Psychic) — will retry');
+        }
       };
       
       ws.onclose = () => {
-        console.log('WebSocket closed, reconnecting...');
+        if (wsRef.current === ws) wsRef.current = null;
+        if (wsUnmountedRef.current || sessionEndedHandledRef.current) return;
         setIsDisconnected(true);
-        setTimeout(() => {
-          if (isSessionActive) connectWebSocket();
+        if (wsReconnectTimerRef.current) clearTimeout(wsReconnectTimerRef.current);
+        wsReconnectTimerRef.current = setTimeout(() => {
+          connectWebSocket();
         }, 3000);
       };
       
       wsRef.current = ws;
     } catch (error) {
-      console.error('WebSocket connection error:', error);
+      console.warn('WebSocket connection error:', error);
       setIsDisconnected(true);
     }
-  }, [currentPsychic?.id, sessionId, isSessionActive]);
+  }, [currentPsychic?.id, sessionId, rate]);
 
-  // WebSocket connection
+  // WebSocket connection (created once per advisor + session)
   useEffect(() => {
+    wsUnmountedRef.current = false;
     connectWebSocket();
     return () => {
+      wsUnmountedRef.current = true;
+      if (wsReconnectTimerRef.current) clearTimeout(wsReconnectTimerRef.current);
       if (wsRef.current) {
-        wsRef.current.close();
+        try { wsRef.current.close(); } catch {}
+        wsRef.current = null;
       }
     };
   }, [connectWebSocket]);
+
+  // Real-time sync poll (every 2.5s) for messages and session end status backup
+  useEffect(() => {
+    if (!sessionId || !isSessionActive) return;
+
+    const syncInterval = setInterval(async () => {
+      if (sessionEndedHandledRef.current) return;
+      try {
+        const [sessRes, msgRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/api/chat/${sessionId}`),
+          fetch(`${BACKEND_URL}/api/messages/conversation/${sessionId}?user_id=${currentPsychic?.id || 'advisor'}`),
+        ]);
+
+        if (msgRes.ok) {
+          const historyData = await msgRes.json();
+          if (Array.isArray(historyData) && historyData.length > 0) {
+            setMessages(prev => {
+              const existingIds = new Set(prev.map(m => m.id));
+              let changed = false;
+              const updated = [...prev];
+              for (const m of historyData) {
+                const img = m.image_url;
+                const isImage = m.type === 'image' || !!img;
+                if (!existingIds.has(m.id)) {
+                  const isFromPsy = m.sender_id === currentPsychic?.id || m.sender_id === 'psy-001' || m.sender_type === 'psychic';
+                  const textContent = isImage ? (img || m.content || '') : (m.content === '[Photo]' ? '' : (m.content || ''));
+                  if (!textContent && !img) continue;
+
+                  updated.push({
+                    id: m.id,
+                    text: textContent,
+                    sender: isFromPsy ? 'psychic' : 'client',
+                    timestamp: new Date(m.created_at || Date.now()),
+                    type: isImage ? 'image' : 'text',
+                    imageUrl: img,
+                  });
+                  changed = true;
+                }
+              }
+              if (changed) scrollToBottom();
+              return changed ? updated : prev;
+            });
+          }
+        }
+
+        if (sessRes.ok) {
+          const sessData = await sessRes.json();
+          if (sessData.session_type && sessData.session_type !== activeSessionType) {
+            const st = sessData.session_type.toLowerCase();
+            if (st === 'video' || st === 'phone') {
+              setActiveSessionType(st);
+            }
+          }
+          if (sessData.agora_channel) {
+            setAgoraConfig(prev => ({
+              channel: sessData.agora_channel || prev.channel,
+              appId: sessData.agora_app_id || prev.appId,
+              uid: sessData.psychic_uid || prev.uid,
+              token: sessData.psychic_token || prev.token,
+            }));
+          }
+          if (sessData.status === 'ended' && !sessionEndedHandledRef.current) {
+            finalizeAdvisorSessionUI({
+              endedBy: sessData.ended_by || 'client',
+              durationSeconds: sessData.duration_seconds || Math.round((sessData.total_minutes || 1) * 60),
+              ratePerMinute: sessData.rate_per_minute || rate,
+              totalCost: sessData.total_cost,
+              psychicEarnings: sessData.psychic_earnings,
+            });
+          }
+        }
+      } catch (e) {
+        // Ignore transient network errors
+      }
+    }, 2500);
+
+    return () => clearInterval(syncInterval);
+  }, [sessionId, isSessionActive, currentPsychic?.id, finalizeAdvisorSessionUI, rate, activeSessionType]);
 
   // Add welcome message and fetch persisted message history on mount
   useEffect(() => {
@@ -254,7 +442,7 @@ export default function ActiveSessionChatScreen() {
             const loaded: Message[] = historyData.map((m: any) => ({
               id: m.id,
               text: m.content,
-              sender: m.sender_id === currentPsychic?.id ? 'psychic' : 'client',
+              sender: (m.sender_id === currentPsychic?.id || m.sender_id === 'psy-001' || m.sender_type === 'psychic') ? 'psychic' : 'client',
               timestamp: new Date(m.created_at || Date.now()),
             }));
             setMessages(prev => {
@@ -273,11 +461,29 @@ export default function ActiveSessionChatScreen() {
     loadHistory();
   }, [clientName, sessionId, currentPsychic?.id]);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = (animated = true) => {
     setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+      scrollViewRef.current?.scrollToEnd({ animated });
+    }, 60);
   };
+
+  // Auto-scroll when keyboard opens on mobile
+  useEffect(() => {
+    const sub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: true });
+        }, 100);
+      }
+    );
+    return () => sub.remove();
+  }, []);
+
+  // Auto-scroll whenever new message arrives
+  useEffect(() => {
+    scrollToBottom(true);
+  }, [messages.length]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -286,7 +492,7 @@ export default function ActiveSessionChatScreen() {
   };
 
   const calculateEarnings = () => {
-    const minutes = sessionDuration / 60;
+    const minutes = Math.max(1, sessionDuration / 60);
     return (minutes * rate * 0.4).toFixed(2); // 40% to psychic
   };
 
@@ -309,7 +515,6 @@ export default function ActiveSessionChatScreen() {
     const messageText = sanitizeMessageText(inputText.trim());
     const messageId = `msg-${Date.now()}`;
     
-    // Add to local state
     const newMessage: Message = {
       id: messageId,
       text: messageText,
@@ -320,16 +525,22 @@ export default function ActiveSessionChatScreen() {
     setInputText('');
     scrollToBottom();
     
-    // Send via WebSocket
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: 'message',
+        id: messageId,
         conversation_id: sessionId,
         receiver_id: clientId,
         content: messageText,
+        sender_type: 'psychic',
+      }));
+      wsRef.current.send(JSON.stringify({
+        type: 'typing',
+        conversation_id: sessionId,
+        receiver_id: clientId,
+        is_typing: false,
       }));
     } else {
-      // Fallback to HTTP
       sendMessageViaHttp(messageText);
     }
   }, [inputText, isSessionActive, sessionId, clientId]);
@@ -352,17 +563,44 @@ export default function ActiveSessionChatScreen() {
     }
   };
 
+  const lastTypingEmitRef = useRef(0);
   const handleInputChange = (text: string) => {
     setInputText(text);
     
-    // Send typing indicator
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
-        type: 'typing',
-        conversation_id: sessionId,
-        receiver_id: clientId,
-        is_typing: text.length > 0,
-      }));
+      if (text.length === 0) {
+        wsRef.current.send(JSON.stringify({
+          type: 'typing',
+          conversation_id: sessionId,
+          receiver_id: clientId,
+          is_typing: false,
+        }));
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastTypingEmitRef.current > 1500) {
+        wsRef.current.send(JSON.stringify({
+          type: 'typing',
+          conversation_id: sessionId,
+          receiver_id: clientId,
+          is_typing: true,
+        }));
+        lastTypingEmitRef.current = now;
+      }
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'typing',
+            conversation_id: sessionId,
+            receiver_id: clientId,
+            is_typing: false,
+          }));
+        }
+      }, 2500);
     }
   };
 
@@ -382,26 +620,38 @@ export default function ActiveSessionChatScreen() {
   };
 
   const endSession = async () => {
+    if (sessionEndedHandledRef.current) return;
     try {
-      await fetch(`${BACKEND_URL}/api/chat/end/${sessionId}`, {
+      const res = await fetch(`${BACKEND_URL}/api/chat/end/${sessionId}?ended_by=advisor`, {
         method: 'POST',
       });
-      setIsSessionActive(false);
-      navigateToSummary();
+      if (res.ok) {
+        const data = await res.json();
+        finalizeAdvisorSessionUI({
+          endedBy: 'advisor',
+          durationSeconds: data.duration_seconds || Math.round((data.duration_minutes || 1) * 60),
+          ratePerMinute: data.rate_per_minute || rate,
+          totalCost: data.total_cost,
+          psychicEarnings: data.psychic_earnings,
+        });
+        return;
+      }
     } catch (error) {
       console.error('Error ending session:', error);
-      navigateToSummary();
     }
+    finalizeAdvisorSessionUI({ endedBy: 'advisor' });
   };
 
-  const navigateToSummary = () => {
+  const navigateToSummary = (customDuration?: number, customEarnings?: string) => {
     router.replace({
-      pathname: '/call-summary' as any,
+      pathname: '/session-review' as any,
       params: {
-        duration: sessionDuration.toString(),
-        earnings: calculateEarnings(),
+        sessionId: sessionId,
+        clientId: clientId,
+        duration: (customDuration ?? sessionDuration).toString(),
+        earnings: customEarnings ?? calculateEarnings(),
         clientName: clientName,
-        sessionType: 'chat',
+        sessionType: activeSessionType,
       },
     });
   };
@@ -420,6 +670,14 @@ export default function ActiveSessionChatScreen() {
       );
     }
     
+    const isImage = message.type === 'image' || !!message.imageUrl || (typeof message.text === 'string' && (message.text.startsWith('data:image') || !!message.text.match(/\.(jpeg|jpg|gif|png|webp)($|\?)/i)));
+    const imageUri = message.imageUrl || (isImage && typeof message.text === 'string' && message.text.startsWith('data:image') ? message.text : undefined);
+
+    // If message is just '[Photo]' text without an image, do NOT render a bare text bubble
+    if (message.text === '[Photo]' && !isImage) {
+      return null;
+    }
+
     return (
       <View
         key={message.id}
@@ -429,21 +687,35 @@ export default function ActiveSessionChatScreen() {
           { backgroundColor: isPsychic ? colors.primary : colors.backgroundElevated }
         ]}
       >
-        <Text style={[
-          styles.messageText,
-          { color: isPsychic ? '#FFF' : colors.textPrimary }
-        ]}>
-          {message.text}
-        </Text>
+        {isImage && imageUri ? (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => setSelectedImage(imageUri)}
+          >
+            <Image
+              source={{ uri: imageUri }}
+              style={{ width: 220, height: 160, borderRadius: 12, resizeMode: 'cover' }}
+            />
+          </TouchableOpacity>
+        ) : (
+          <Text style={[
+            styles.messageText,
+            { color: isPsychic ? '#FFF' : colors.textPrimary }
+          ]}>
+            {message.text}
+          </Text>
+        )}
       </View>
     );
   };
+
+  const isCallMode = activeSessionType === 'phone' || activeSessionType === 'video';
 
   return (
     <KeyboardAvoidingView
       style={[styles.container, { backgroundColor: colors.background }]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
     >
       {/* Header */}
       <LinearGradient
@@ -458,7 +730,9 @@ export default function ActiveSessionChatScreen() {
           <Text style={styles.headerName}>{clientName}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             <Text style={styles.headerStatus}>
-              {isSessionActive ? `Session Active • ${formatTime(sessionDuration)}` : 'Session Ended'}
+              {isSessionActive
+                ? `${activeSessionType === 'video' ? 'Video Call' : activeSessionType === 'phone' ? 'Audio Call' : 'Live Chat'} • ${formatTime(sessionDuration)}`
+                : 'Session Ended'}
             </Text>
             {/* ADV-032: Network Signal Quality Badge */}
             {isSessionActive && (
@@ -472,94 +746,229 @@ export default function ActiveSessionChatScreen() {
         
         {isSessionActive && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            {/* ADV-030: Mute Toggle Button */}
-            <TouchableOpacity style={[styles.endButton, isMuted && { backgroundColor: '#E74C3C' }]} onPress={toggleMute}>
-              <Ionicons
-                name={isMuted ? 'mic-off' : 'mic'}
-                size={18}
-                color="#FFF"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.endButton} onPress={toggleAudioRoute}>
-              <Ionicons
-                name={audioRoute === 'speaker' ? 'volume-high' : audioRoute === 'bluetooth' ? 'bluetooth' : 'headset'}
-                size={18}
-                color="#FFF"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.endButton} onPress={handleEndSession}>
+            {isCallMode && (
+              <TouchableOpacity
+                style={[styles.endButton, showChatInCall && { backgroundColor: 'rgba(255,255,255,0.35)' }]}
+                onPress={() => setShowChatInCall(prev => !prev)}
+              >
+                <Ionicons
+                  name={showChatInCall ? (activeSessionType === 'video' ? 'videocam' : 'call') : 'chatbubble-ellipses'}
+                  size={18}
+                  color="#FFF"
+                />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={[styles.endButton, { backgroundColor: '#E74C3C' }]} onPress={handleEndSession}>
               <Text style={styles.endButtonText}>End</Text>
             </TouchableOpacity>
           </View>
         )}
       </LinearGradient>
 
-      {/* ADV-025: Low-Bandwidth Auto-Downgrade Warning Banner when network quality drops to poor */}
-      {networkQuality === 'poor' && isSessionActive && (
-        <View style={[styles.muteBanner, { backgroundColor: '#C0392B' }]}>
-          <Ionicons name="wifi-outline" size={16} color="#FFF" />
-          <Text style={styles.muteBannerText}>Weak Network (3G/Poor Signal): Auto-switched to Audio-Only Mode to prevent call drop.</Text>
+      {/* Main Content: Agora Audio/Video Call OR Live Chat Messages */}
+      {isCallMode && isSessionActive && !showChatInCall ? (
+        <View style={{ flex: 1 }}>
+          <AgoraVideoCall
+            channelName={agoraConfig.channel}
+            token={agoraConfig.token}
+            uid={agoraConfig.uid}
+            appId={agoraConfig.appId}
+            isVideo={activeSessionType === 'video'}
+            remoteName={clientName}
+            timerText={formatTime(sessionDuration)}
+            subStatusText={`Rate: $${rate.toFixed(2)}/min • Earnings: +$${calculateEarnings()}`}
+            onCallEnd={endSession}
+          />
         </View>
+      ) : (
+        <>
+          {/* ADV-025: Low-Bandwidth Auto-Downgrade Warning Banner when network quality drops to poor */}
+          {networkQuality === 'poor' && isSessionActive && (
+            <View style={[styles.muteBanner, { backgroundColor: '#C0392B' }]}>
+              <Ionicons name="wifi-outline" size={16} color="#FFF" />
+              <Text style={styles.muteBannerText}>Weak Network (3G/Poor Signal): Auto-switched to Audio-Only Mode to prevent call drop.</Text>
+            </View>
+          )}
+
+          {/* ADV-030: Prominent Red Mute Indicator Banner when microphone is muted */}
+          {isMuted && isSessionActive && (
+            <View style={styles.muteBanner}>
+              <Ionicons name="mic-off-outline" size={16} color="#FFF" />
+              <Text style={styles.muteBannerText}>Your microphone is MUTED. Client cannot hear you.</Text>
+              <TouchableOpacity style={styles.unmuteBadge} onPress={toggleMute}>
+                <Text style={styles.unmuteBadgeText}>UNMUTE</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* ADV-027: Emergency 1-Click Rejoin Session Banner when connection is lost */}
+          {isDisconnected && isSessionActive && (
+            <View style={[styles.muteBanner, { backgroundColor: '#D35400' }]}>
+              <Ionicons name="warning-outline" size={16} color="#FFF" />
+              <Text style={styles.muteBannerText}>Connection lost. Attempting auto-reconnect...</Text>
+              <TouchableOpacity style={[styles.unmuteBadge, { backgroundColor: '#FFF' }]} onPress={reconnectSession}>
+                <Text style={[styles.unmuteBadgeText, { color: '#D35400' }]}>REJOIN</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Messages */}
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.messagesContainer}
+            contentContainerStyle={styles.messagesContent}
+            onContentSizeChange={() => scrollToBottom(false)}
+            keyboardShouldPersistTaps="handled"
+          >
+            {messages.map(renderMessage)}
+            
+            {clientIsTyping && (
+              <View style={styles.typingIndicator}>
+                <Text style={[styles.typingText, { color: colors.textMuted }]}>
+                  {clientName} is typing...
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </>
       )}
 
-      {/* ADV-030: Prominent Red Mute Indicator Banner when microphone is muted */}
-      {isMuted && isSessionActive && (
-        <View style={styles.muteBanner}>
-          <Ionicons name="mic-off-outline" size={16} color="#FFF" />
-          <Text style={styles.muteBannerText}>Your microphone is MUTED. Client cannot hear you.</Text>
-          <TouchableOpacity style={styles.unmuteBadge} onPress={toggleMute}>
-            <Text style={styles.unmuteBadgeText}>UNMUTE</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+      {/* Session Ended Billing Summary Popup Modal */}
+      {billingSummary?.visible && (
+        <Modal visible={billingSummary.visible} transparent animationType="fade">
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+            <View style={{ width: '100%', maxWidth: 380, backgroundColor: colors.backgroundCard, borderRadius: 24, padding: 24, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
+              <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#27AE6020', justifyContent: 'center', alignItems: 'center', marginBottom: 14 }}>
+                <Ionicons name="cash" size={32} color="#27AE60" />
+              </View>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: colors.textPrimary, marginBottom: 6 }}>
+                Session Completed!
+              </Text>
+              <Text style={{ fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: 20 }}>
+                {billingSummary.endedBy === 'client'
+                  ? `${clientName} ended the chat session.`
+                  : `You ended the chat session with ${clientName}.`}
+              </Text>
 
-      {/* ADV-027: Emergency 1-Click Rejoin Session Banner when connection is lost */}
-      {isDisconnected && isSessionActive && (
-        <View style={[styles.muteBanner, { backgroundColor: '#D35400' }]}>
-          <Ionicons name="warning-outline" size={16} color="#FFF" />
-          <Text style={styles.muteBannerText}>Connection lost. Attempting auto-reconnect...</Text>
-          <TouchableOpacity style={[styles.unmuteBadge, { backgroundColor: '#FFF' }]} onPress={reconnectSession}>
-            <Text style={[styles.unmuteBadgeText, { color: '#D35400' }]}>REJOIN</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+              {/* Earnings & Client Charge Box */}
+              <LinearGradient
+                colors={['#27AE60', '#1E8449']}
+                style={{ width: '100%', borderRadius: 16, padding: 18, alignItems: 'center', marginBottom: 18 }}
+              >
+                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: '700', marginBottom: 4 }}>
+                  CLIENT CHARGED: ${billingSummary.totalCost.toFixed(2)}
+                </Text>
+                <Text style={{ color: '#FFF', fontSize: 34, fontWeight: '800' }}>
+                  +${billingSummary.psychicEarnings.toFixed(2)}
+                </Text>
+                <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600', marginTop: 2 }}>
+                  Your Earnings (40%)
+                </Text>
+              </LinearGradient>
 
-      {/* Messages */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.messagesContainer}
-        contentContainerStyle={styles.messagesContent}
-        onContentSizeChange={scrollToBottom}
-      >
-        {messages.map(renderMessage)}
-        
-        {clientIsTyping && (
-          <View style={styles.typingIndicator}>
-            <Text style={[styles.typingText, { color: colors.textMuted }]}>
-              {clientName} is typing...
-            </Text>
+              {/* Breakdown Rows */}
+              <View style={{ width: '100%', backgroundColor: colors.backgroundElevated, borderRadius: 14, padding: 14, gap: 10, marginBottom: 20 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 14 }}>Duration:</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
+                    {Math.floor(billingSummary.durationSeconds / 60)}m {billingSummary.durationSeconds % 60}s
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 14 }}>Rate:</Text>
+                  <Text style={{ color: colors.textPrimary, fontSize: 14, fontWeight: '700' }}>
+                    ${billingSummary.ratePerMinute.toFixed(2)}/min
+                  </Text>
+                </View>
+                <View style={{ height: 1, backgroundColor: colors.border }} />
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 14 }}>Total Deducted from Client:</Text>
+                  <Text style={{ color: colors.primary, fontSize: 15, fontWeight: '800' }}>
+                    ${billingSummary.totalCost.toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Actions */}
+              <TouchableOpacity
+                style={{ width: '100%', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}
+                onPress={() => {
+                  const dur = billingSummary.durationSeconds;
+                  const earn = billingSummary.psychicEarnings.toFixed(2);
+                  setBillingSummary(null);
+                  navigateToSummary(dur, earn);
+                }}
+              >
+                <LinearGradient
+                  colors={[colors.primary, colors.secondary]}
+                  style={{ paddingVertical: 14, alignItems: 'center' }}
+                >
+                  <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700' }}>Add Session Notes 📝</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{ width: '100%', paddingVertical: 12, alignItems: 'center' }}
+                onPress={() => {
+                  setBillingSummary(null);
+                  router.replace('/(tabs)/dashboard');
+                }}
+              >
+                <Text style={{ color: colors.textSecondary, fontSize: 15, fontWeight: '600' }}>Back to Dashboard</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        )}
-      </ScrollView>
+        </Modal>
+      )}
+
+      {/* Full-Screen Image Lightbox Modal */}
+      {selectedImage && (
+        <Modal visible={!!selectedImage} transparent animationType="fade" onRequestClose={() => setSelectedImage(null)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
+            <TouchableOpacity
+              style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 }}
+              onPress={() => setSelectedImage(null)}
+            >
+              <Ionicons name="close" size={32} color="#FFF" />
+            </TouchableOpacity>
+            <Image
+              source={{ uri: selectedImage }}
+              style={{ width: '95%', height: '80%', resizeMode: 'contain' }}
+            />
+          </View>
+        </Modal>
+      )}
 
       {/* Input */}
-      {isSessionActive && (
+      {isSessionActive ? (
+        (!isCallMode || showChatInCall) ? (
+          <View style={[styles.inputContainer, { paddingBottom: insets.bottom + SPACING.sm, backgroundColor: colors.backgroundCard }]}>
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.backgroundElevated, color: colors.textPrimary }]}
+              placeholder="Type your message..."
+              placeholderTextColor={colors.textMuted}
+              value={inputText}
+              onChangeText={handleInputChange}
+              onFocus={() => scrollToBottom()}
+              multiline
+              maxLength={500}
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, { backgroundColor: colors.primary }]}
+              onPress={sendMessage}
+              disabled={!inputText.trim()}
+            >
+              <Ionicons name="send" size={20} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        ) : null
+      ) : (
         <View style={[styles.inputContainer, { paddingBottom: insets.bottom + SPACING.sm, backgroundColor: colors.backgroundCard }]}>
-          <TextInput
-            style={[styles.input, { backgroundColor: colors.backgroundElevated, color: colors.textPrimary }]}
-            placeholder="Type your message..."
-            placeholderTextColor={colors.textMuted}
-            value={inputText}
-            onChangeText={handleInputChange}
-            multiline
-            maxLength={500}
-          />
           <TouchableOpacity
-            style={[styles.sendButton, { backgroundColor: colors.primary }]}
-            onPress={sendMessage}
-            disabled={!inputText.trim()}
+            style={{ flex: 1, backgroundColor: colors.backgroundElevated, paddingVertical: 14, borderRadius: 14, alignItems: 'center' }}
+            onPress={() => router.replace('/(tabs)/dashboard')}
           >
-            <Ionicons name="send" size={20} color="#FFF" />
+            <Text style={{ color: colors.textSecondary, fontSize: 15, fontWeight: '600' }}>Session Ended • Return to Dashboard</Text>
           </TouchableOpacity>
         </View>
       )}

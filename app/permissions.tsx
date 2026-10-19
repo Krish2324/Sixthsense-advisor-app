@@ -6,12 +6,14 @@ import {
   TouchableOpacity,
   Platform,
   Alert,
+  PermissionsAndroid,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../src/context/ThemeContext';
 import { SPACING } from '../src/constants/theme';
@@ -37,6 +39,7 @@ export default function PermissionsScreen() {
   
   const [notificationStatus, setNotificationStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
   const [cameraStatus, setCameraStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
+  const [microphoneStatus, setMicrophoneStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
   const [photoStatus, setPhotoStatus] = useState<'pending' | 'granted' | 'denied'>('pending');
 
   const requestNotificationPermission = async () => {
@@ -80,6 +83,32 @@ export default function PermissionsScreen() {
               setCameraStatus(status === 'granted' ? 'granted' : 'denied');
             } catch (error) {
               setCameraStatus('denied');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const requestMicrophonePermission = async () => {
+    Alert.alert(
+      '🎙️ Microphone Access Rationale',
+      'Microphone access is required so clients can hear you during live audio and video readings.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Allow Microphone',
+          onPress: async () => {
+            try {
+              if (Platform.OS === 'android') {
+                const res = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+                setMicrophoneStatus(res === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : 'denied');
+              } else {
+                const res = await Audio.requestPermissionsAsync();
+                setMicrophoneStatus(res.granted ? 'granted' : 'denied');
+              }
+            } catch (error) {
+              setMicrophoneStatus('denied');
             }
           }
         }
@@ -191,6 +220,29 @@ export default function PermissionsScreen() {
               </TouchableOpacity>
             ) : (
               <Ionicons name={getStatusIcon(cameraStatus) as any} size={28} color={getStatusColor(cameraStatus)} />
+            )}
+          </View>
+
+          {/* Microphone */}
+          <View style={[styles.permissionCard, { backgroundColor: colors.backgroundCard }]}>
+            <View style={[styles.permissionIcon, { backgroundColor: '#10B981' + '20' }]}>
+              <Ionicons name="mic" size={24} color="#10B981" />
+            </View>
+            <View style={styles.permissionInfo}>
+              <Text style={[styles.permissionTitle, { color: colors.textPrimary }]}>Microphone</Text>
+              <Text style={[styles.permissionDesc, { color: colors.textSecondary }]}>
+                Live audio & video calls with clients
+              </Text>
+            </View>
+            {microphoneStatus === 'pending' ? (
+              <TouchableOpacity
+                style={[styles.allowButton, { backgroundColor: colors.primary }]}
+                onPress={requestMicrophonePermission}
+              >
+                <Text style={styles.allowButtonText}>Enable</Text>
+              </TouchableOpacity>
+            ) : (
+              <Ionicons name={getStatusIcon(microphoneStatus) as any} size={28} color={getStatusColor(microphoneStatus)} />
             )}
           </View>
 

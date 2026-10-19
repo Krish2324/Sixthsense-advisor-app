@@ -8,6 +8,7 @@ import {
   Animated,
   Dimensions,
   Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,9 +17,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
 import { Audio } from 'expo-av';
+import { Camera } from 'expo-camera';
 
 const { width, height } = Dimensions.get('window');
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 
 export default function IncomingRequestScreen() {
   const router = useRouter();
@@ -36,6 +38,7 @@ export default function IncomingRequestScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(1)).current;
+  const timeoutTimerRef = useRef<any>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [timeLeft, setTimeLeft] = useState(30);
 
@@ -48,10 +51,10 @@ export default function IncomingRequestScreen() {
     }).catch(() => null);
 
     // ADV-029: 30-second request timeout countdown
-    const timeoutTimer = setInterval(() => {
+    timeoutTimerRef.current = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          clearInterval(timeoutTimer);
+          if (timeoutTimerRef.current) clearInterval(timeoutTimerRef.current);
           handleReject();
           return 0;
         }
@@ -96,7 +99,7 @@ export default function IncomingRequestScreen() {
     }).start();
 
     return () => {
-      clearInterval(timeoutTimer);
+      if (timeoutTimerRef.current) clearInterval(timeoutTimerRef.current);
       if (Platform.OS !== 'web') {
         Vibration.cancel();
       }
@@ -104,19 +107,44 @@ export default function IncomingRequestScreen() {
   }, []);
 
   const getSessionIcon = () => {
+    if (sessionType === 'phone' || sessionType === 'voice') return 'call';
+    if (sessionType === 'video') return 'videocam';
     return 'chatbubble';
   };
 
   const getSessionLabel = () => {
-    return 'Chat';
+    if (sessionType === 'phone' || sessionType === 'voice') return 'Audio Call';
+    if (sessionType === 'video') return 'Video Call';
+    return 'Live Chat';
   };
 
   const handleAccept = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
+    if (timeoutTimerRef.current) clearInterval(timeoutTimerRef.current);
     
     if (Platform.OS !== 'web') {
       Vibration.cancel();
+    }
+
+    // Pre-request microphone (and camera) permissions only if not yet granted
+    if (sessionType === 'phone' || sessionType === 'voice' || sessionType === 'video') {
+      try {
+        if (Platform.OS === 'android') {
+          const hasRecord = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+          const permsToRequest: string[] = [];
+          if (!hasRecord) permsToRequest.push(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+          if (sessionType === 'video') {
+            const hasCam = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
+            if (!hasCam) permsToRequest.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+          }
+          if (permsToRequest.length > 0) {
+            await PermissionsAndroid.requestMultiple(permsToRequest as any);
+          }
+        }
+      } catch (permErr) {
+        console.warn('Accept permission check warning:', permErr);
+      }
     }
 
     try {
@@ -127,29 +155,43 @@ export default function IncomingRequestScreen() {
       if (response.ok) {
         const data = await response.json();
         
-        // Navigate to live session chat screen
+        // Navigate to live session screen (Chat, Audio Call, or Video Call)
         router.replace({
           pathname: '/session/[id]',
           params: {
             id: data.session_id || requestId,
             clientId: data.session?.client_id || params.clientId || 'client',
             clientName: clientName,
+            sessionType: data.session?.session_type || sessionType,
             rate: rate.toString(),
+            agoraChannel: data.agora_channel || data.session?.agora_channel || '',
+            agoraAppId: data.agora_app_id || data.session?.agora_app_id || '',
+            agoraUid: String(data.psychic_uid || data.session?.psychic_uid || 2),
+            agoraToken: data.psychic_token || data.session?.psychic_token || '',
           },
         });
       } else {
         console.error('Failed to accept request');
-        router.back();
+        if (router.canGoBack()) {
+          router.back();
+        } else {
+          router.replace('/(tabs)/dashboard');
+        }
       }
     } catch (error) {
       console.error('Failed to accept request:', error);
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)/dashboard');
+      }
     }
   };
 
   const handleReject = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
+    if (timeoutTimerRef.current) clearInterval(timeoutTimerRef.current);
     
     if (Platform.OS !== 'web') {
       Vibration.cancel();
@@ -159,10 +201,18 @@ export default function IncomingRequestScreen() {
       await fetch(`${BACKEND_URL}/api/chat/request/${requestId}/reject`, {
         method: 'PUT',
       });
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)/dashboard');
+      }
     } catch (error) {
       console.error('Failed to reject request:', error);
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(tabs)/dashboard');
+      }
     }
   };
 
@@ -268,25 +318,31 @@ export default function IncomingRequestScreen() {
           },
         ]}
       >
-        {/* Reject */}
-        <TouchableOpacity
-          style={[styles.actionButton, styles.rejectButton]}
-          onPress={handleReject}
-          disabled={isProcessing}
-        >
-          <Ionicons name="close" size={36} color="#FFF" />
+        {/* Reject / Decline */}
+        <View style={styles.actionItem}>
+          <TouchableOpacity
+            style={[styles.actionCircle, styles.rejectCircle]}
+            onPress={handleReject}
+            disabled={isProcessing}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="close" size={34} color="#FFF" />
+          </TouchableOpacity>
           <Text style={styles.actionText}>Decline</Text>
-        </TouchableOpacity>
+        </View>
 
         {/* Accept */}
-        <TouchableOpacity
-          style={[styles.actionButton, styles.acceptButton]}
-          onPress={handleAccept}
-          disabled={isProcessing}
-        >
-          <Ionicons name={getSessionIcon() as any} size={36} color="#FFF" />
+        <View style={styles.actionItem}>
+          <TouchableOpacity
+            style={[styles.actionCircle, styles.acceptCircle]}
+            onPress={handleAccept}
+            disabled={isProcessing}
+            activeOpacity={0.8}
+          >
+            <Ionicons name={getSessionIcon() as any} size={32} color="#FFF" />
+          </TouchableOpacity>
           <Text style={styles.actionText}>Accept</Text>
-        </TouchableOpacity>
+        </View>
       </Animated.View>
     </LinearGradient>
   );
@@ -390,31 +446,36 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 60,
-  },
-  actionButton: {
     alignItems: 'center',
-    gap: 8,
+    gap: 70,
   },
-  rejectButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  actionItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  actionCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+  },
+  rejectCircle: {
     backgroundColor: '#E74C3C',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
-  acceptButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  acceptCircle: {
     backgroundColor: '#27AE60',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   actionText: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-    fontWeight: '500',
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
 });

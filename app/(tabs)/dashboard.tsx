@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SPACING } from '../../src/constants/theme';
@@ -18,32 +18,33 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import NotificationBanner from '../../src/components/NotificationBanner';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const pathname = usePathname();
   const { psychic, token, updateProfile } = useAuth();
   const { colors } = useTheme();
   
-  // Service availability toggles - will be loaded from backend
-  const [chatOnline, setChatOnline] = useState(false);
-  const [phoneOnline, setPhoneOnline] = useState(false);
-  const [videoOnline, setVideoOnline] = useState(false);
+  // Service availability toggles - loaded from backend
+  const [chatOnline, setChatOnline] = useState(psychic?.online_status === 'online');
+  const [phoneOnline, setPhoneOnline] = useState(psychic?.online_status === 'online');
+  const [videoOnline, setVideoOnline] = useState(psychic?.online_status === 'online');
   const [standardReadings, setStandardReadings] = useState(false);
   const [emergencyReadings, setEmergencyReadings] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeSale, setActiveSale] = useState<any>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const handledRequestsRef = React.useRef<Set<string>>(new Set());
 
   // Load current service settings from backend on mount
   useEffect(() => {
     const loadCurrentSettings = async () => {
       if (!psychic?.id && !psychic?.email) {
-        // No psychic logged in, use defaults
         setChatOnline(true);
         setPhoneOnline(true);
-        setVideoOnline(false);
+        setVideoOnline(true);
         setStandardReadings(true);
         setEmergencyReadings(false);
         setSettingsLoaded(true);
@@ -55,33 +56,32 @@ export default function DashboardScreen() {
         const response = await fetch(`${BACKEND_URL}/api/psychics/${psychic.id}`);
         if (response.ok) {
           const data = await response.json();
-          // Load actual settings from database
-          setChatOnline(data.offers_chat ?? true);
-          setPhoneOnline(data.offers_phone ?? true);
-          setVideoOnline(data.offers_video ?? data.offers_video_call ?? false);
+          const isOnline = data.online_status === 'online';
+          setChatOnline(isOnline && (data.offers_chat ?? true));
+          setPhoneOnline(isOnline && (data.offers_phone ?? true));
+          setVideoOnline(isOnline && (data.offers_video ?? data.offers_video_call ?? true));
           setStandardReadings(data.offers_standard_readings ?? true);
           setEmergencyReadings(data.offers_emergency_readings ?? false);
           console.log('📥 Loaded service settings from backend:', {
-            chat: data.offers_chat,
-            phone: data.offers_phone,
-            video: data.offers_video,
-            standard: data.offers_standard_readings,
-            emergency: data.offers_emergency_readings
+            online_status: data.online_status,
+            chat: isOnline && (data.offers_chat ?? true),
+            phone: isOnline && (data.offers_phone ?? true),
+            video: isOnline && (data.offers_video ?? data.offers_video_call ?? true),
           });
         } else {
-          // Fallback to defaults if fetch fails
-          setChatOnline(true);
-          setPhoneOnline(true);
-          setVideoOnline(false);
+          const isOnline = psychic?.online_status === 'online';
+          setChatOnline(isOnline);
+          setPhoneOnline(isOnline);
+          setVideoOnline(isOnline);
           setStandardReadings(true);
           setEmergencyReadings(false);
         }
       } catch (error) {
         console.error('Error loading service settings:', error);
-        // Fallback to defaults
-        setChatOnline(true);
-        setPhoneOnline(true);
-        setVideoOnline(false);
+        const isOnline = psychic?.online_status === 'online';
+        setChatOnline(isOnline);
+        setPhoneOnline(isOnline);
+        setVideoOnline(isOnline);
         setStandardReadings(true);
         setEmergencyReadings(false);
       } finally {
@@ -92,23 +92,75 @@ export default function DashboardScreen() {
     loadCurrentSettings();
   }, [psychic?.id, psychic?.email]);
 
-  // Mock data for demo
-  const stats = {
-    todayEarnings: 145.50,
-    weeklyEarnings: 892.30,
-    pendingQuestions: 3,
-    completedToday: 7,
-    averageRating: psychic?.average_rating || 4.9,
-    totalReviews: psychic?.total_reviews || 156,
-  };
+  // Dynamic dashboard stats from backend
+  const [dashboardStats, setDashboardStats] = useState({
+    todayEarnings: 0,
+    weeklyEarnings: 0,
+    averageRating: Number(psychic?.average_rating || (psychic as any)?.rating || 5.0),
+    totalReviews: Number(psychic?.total_reviews || (psychic as any)?.reviews || 0),
+    totalReadings: Number(psychic?.total_readings || 0),
+    pendingQuestions: 0,
+    activeSessions: 0,
+    dailyBreakdown: [
+      { day: 'Mon', date: '', earnings: 0 },
+      { day: 'Tue', date: '', earnings: 0 },
+      { day: 'Wed', date: '', earnings: 0 },
+      { day: 'Thu', date: '', earnings: 0 },
+      { day: 'Fri', date: '', earnings: 0 },
+      { day: 'Sat', date: '', earnings: 0 },
+      { day: 'Sun', date: '', earnings: 0 },
+    ],
+  });
+
+  const fetchDashboardStats = useCallback(async () => {
+    const psychicIdentifier = psychic?.id || psychic?.email;
+    if (!psychicIdentifier) return;
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/psychic-portal/dashboard/${encodeURIComponent(psychicIdentifier)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setDashboardStats({
+          todayEarnings: Number(data.today_earnings ?? 0),
+          weeklyEarnings: Number(data.weekly_earnings ?? 0),
+          averageRating: Number(data.average_rating ?? psychic?.average_rating ?? 5.0),
+          totalReviews: Number(data.total_reviews ?? psychic?.total_reviews ?? 0),
+          totalReadings: Number(data.total_readings ?? 0),
+          pendingQuestions: Number(data.pending_questions ?? 0),
+          activeSessions: Number(data.active_sessions ?? 0),
+          dailyBreakdown: Array.isArray(data.daily_breakdown) && data.daily_breakdown.length > 0 
+            ? data.daily_breakdown 
+            : [
+                { day: 'Mon', date: '', earnings: 0 },
+                { day: 'Tue', date: '', earnings: 0 },
+                { day: 'Wed', date: '', earnings: 0 },
+                { day: 'Thu', date: '', earnings: 0 },
+                { day: 'Fri', date: '', earnings: 0 },
+                { day: 'Sat', date: '', earnings: 0 },
+                { day: 'Sun', date: '', earnings: 0 },
+              ],
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching dashboard stats:', err);
+    }
+  }, [psychic?.id, psychic?.email]);
+
+  useEffect(() => {
+    fetchDashboardStats();
+    const interval = setInterval(fetchDashboardStats, 10000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardStats]);
 
   // Check if any service is online
   const isAnyServiceOnline = chatOnline || phoneOnline || videoOnline;
 
-  // Update online status in backend when toggles change
-  const updateOnlineStatus = useCallback(async (isOnline: boolean) => {
-    if (!psychic?.id && !psychic?.email) return;
-    
+  // Master Header Toggle: turns all 3 services (Chat, Audio Call, Video Call) ON or OFF together
+  const handleMasterToggle = async (value: boolean) => {
+    setChatOnline(value);
+    setPhoneOnline(value);
+    setVideoOnline(value);
+    const newStatus = value ? 'online' : 'offline';
+
     try {
       const response = await fetch(`${BACKEND_URL}/api/psychic-portal/update-status`, {
         method: 'POST',
@@ -119,27 +171,28 @@ export default function DashboardScreen() {
         body: JSON.stringify({
           psychic_id: psychic?.id,
           email: psychic?.email,
-          online_status: isOnline ? 'online' : 'offline',
-          offers_chat: chatOnline,
-          offers_phone: phoneOnline,
-          offers_video: videoOnline,
+          online_status: newStatus,
+          offers_chat: value,
+          offers_phone: value,
+          offers_video: value,
         }),
       });
-      
       if (!response.ok) {
-        console.error('Failed to update status');
+        console.error('Failed to update master status');
+      } else {
+        console.log(`✅ Advisor master status updated to: ${newStatus}`);
       }
     } catch (error) {
-      console.error('Error updating online status:', error);
+      console.error('Error updating master status:', error);
     }
-  }, [psychic, token, chatOnline, phoneOnline, videoOnline]);
+  };
 
-  // Handle service toggle changes
+  // Handle Live Chat toggle
   const handleChatToggle = async (value: boolean) => {
     setChatOnline(value);
     const newIsOnline = value || phoneOnline || videoOnline;
+    const newStatus = newIsOnline ? 'online' : 'offline';
     
-    // Update backend with new values directly
     try {
       const response = await fetch(`${BACKEND_URL}/api/psychic-portal/update-status`, {
         method: 'POST',
@@ -150,8 +203,8 @@ export default function DashboardScreen() {
         body: JSON.stringify({
           psychic_id: psychic?.id,
           email: psychic?.email,
-          online_status: newIsOnline ? 'online' : 'offline',
-          offers_chat: value,  // Use the new value directly
+          online_status: newStatus,
+          offers_chat: value,
           offers_phone: phoneOnline,
           offers_video: videoOnline,
         }),
@@ -159,11 +212,16 @@ export default function DashboardScreen() {
       
       if (!response.ok) {
         console.error('Failed to update chat status');
+        setChatOnline(!value);
+      } else {
+        console.log(`✅ Advisor chat status updated to: ${value}`);
       }
     } catch (error) {
       console.error('Error updating chat status:', error);
+      setChatOnline(!value);
     }
   };
+
 
   const handlePhoneToggle = async (value: boolean) => {
     setPhoneOnline(value);
@@ -182,16 +240,18 @@ export default function DashboardScreen() {
           email: psychic?.email,
           online_status: newIsOnline ? 'online' : 'offline',
           offers_chat: chatOnline,
-          offers_phone: value,  // Use the new value directly
+          offers_phone: value,
           offers_video: videoOnline,
         }),
       });
       
       if (!response.ok) {
         console.error('Failed to update phone status');
+        setPhoneOnline(!value);
       }
     } catch (error) {
       console.error('Error updating phone status:', error);
+      setPhoneOnline(!value);
     }
   };
 
@@ -213,15 +273,17 @@ export default function DashboardScreen() {
           online_status: newIsOnline ? 'online' : 'offline',
           offers_chat: chatOnline,
           offers_phone: phoneOnline,
-          offers_video: value,  // Use the new value directly
+          offers_video: value,
         }),
       });
       
       if (!response.ok) {
         console.error('Failed to update video status');
+        setVideoOnline(!value);
       }
     } catch (error) {
       console.error('Error updating video status:', error);
+      setVideoOnline(!value);
     }
   };
 
@@ -283,6 +345,11 @@ export default function DashboardScreen() {
   const checkIncomingRequests = useCallback(async () => {
     if (!psychic?.email && !psychic?.id) return;
     
+    // Do not poll or navigate if advisor is already in an active session or incoming screen
+    if (pathname && (pathname.includes('/session') || pathname.includes('/incoming-request'))) {
+      return;
+    }
+    
     try {
       const endpoint = psychic?.email 
         ? `${BACKEND_URL}/api/chat/requests/pending/email/${encodeURIComponent(psychic.email)}`
@@ -293,6 +360,10 @@ export default function DashboardScreen() {
         const data = await response.json();
         if (data.requests && data.requests.length > 0) {
           const request = data.requests[0];
+          if (handledRequestsRef.current.has(request.id)) {
+            return;
+          }
+          handledRequestsRef.current.add(request.id);
           // Navigate to incoming request screen
           router.push({
             pathname: '/incoming-request',
@@ -310,15 +381,16 @@ export default function DashboardScreen() {
     } catch (error) {
       console.error('Error checking for incoming requests:', error);
     }
-  }, [psychic, router]);
+  }, [psychic, router, pathname]);
 
-  // Poll for incoming requests every 3 seconds when online
+  // Poll for incoming requests every 2.5 seconds when online
   useEffect(() => {
     if (!isAnyServiceOnline) return;
+    if (pathname && (pathname.includes('/session') || pathname.includes('/incoming-request'))) return;
     
-    const interval = setInterval(checkIncomingRequests, 3000);
+    const interval = setInterval(checkIncomingRequests, 2500);
     return () => clearInterval(interval);
-  }, [isAnyServiceOnline, checkIncomingRequests]);
+  }, [isAnyServiceOnline, checkIncomingRequests, pathname]);
 
   const fetchActiveSale = useCallback(async () => {
     try {
@@ -344,9 +416,10 @@ export default function DashboardScreen() {
       const response = await fetch(`${BACKEND_URL}/api/psychics/${psychic.id}`);
       if (response.ok) {
         const data = await response.json();
-        setChatOnline(data.offers_chat ?? true);
-        setPhoneOnline(data.offers_phone ?? true);
-        setVideoOnline(data.offers_video ?? data.offers_video_call ?? false);
+        const isOnline = data.online_status === 'online';
+        setChatOnline(isOnline && (data.offers_chat ?? true));
+        setPhoneOnline(isOnline && (data.offers_phone ?? true));
+        setVideoOnline(isOnline && (data.offers_video ?? data.offers_video_call ?? true));
         setStandardReadings(data.offers_standard_readings ?? true);
         setEmergencyReadings(data.offers_emergency_readings ?? false);
       }
@@ -355,11 +428,31 @@ export default function DashboardScreen() {
     }
   }, [psychic?.id]);
 
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const fetchUnreadCount = useCallback(async () => {
+    if (!psychic?.id) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/notifications/unread-count/${psychic.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setUnreadNotifCount(data.count || 0);
+      }
+    } catch {}
+  }, [psychic?.id]);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 8000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
       fetchActiveSale(),
-      reloadServiceSettings()
+      reloadServiceSettings(),
+      fetchUnreadCount(),
+      fetchDashboardStats(),
     ]);
     setRefreshing(false);
   };
@@ -368,29 +461,67 @@ export default function DashboardScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Fixed Header - Outside ScrollView */}
       <View style={[styles.header, { paddingTop: insets.top + SPACING.md, backgroundColor: colors.background }]}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={[styles.greeting, { color: colors.textSecondary }]}>Welcome back,</Text>
-          <Text style={[styles.name, { color: colors.textPrimary }]}>{psychic?.name || 'Advisor'}</Text>
+          <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>{psychic?.name || 'Advisor'}</Text>
         </View>
         
-        {/* Overall Status Indicator / ADV-064: 1-Tap Header Quick Online/Offline Toggle */}
-        <TouchableOpacity 
-          style={[styles.statusIndicator, { backgroundColor: colors.backgroundCard, paddingHorizontal: 10, paddingVertical: 4 }]}
-          onPress={() => handleChatToggle(!chatOnline)}
-        >
-          <View style={[styles.statusDot, { backgroundColor: isAnyServiceOnline ? colors.success : colors.error }]} />
-          <Text style={[styles.statusText, { color: isAnyServiceOnline ? colors.success : colors.error, fontWeight: '700' }]}>
-            {isAnyServiceOnline ? 'ONLINE' : 'OFFLINE'}
-          </Text>
-          <Switch
-            value={isAnyServiceOnline}
-            onValueChange={(val) => handleChatToggle(val)}
-            trackColor={{ false: colors.border, true: colors.success }}
-            thumbColor="#FFF"
-            style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
-          />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          {/* Notification Bell Button with Unread Badge */}
+          <TouchableOpacity
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: colors.backgroundCard,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+            onPress={() => router.push('/notifications' as any)}
+          >
+            <Ionicons name="notifications-outline" size={22} color={colors.textPrimary} />
+            {unreadNotifCount > 0 && (
+              <View style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                minWidth: 16,
+                height: 16,
+                borderRadius: 8,
+                backgroundColor: colors.error,
+                justifyContent: 'center',
+                alignItems: 'center',
+                paddingHorizontal: 3,
+              }}>
+                <Text style={{ color: '#FFF', fontSize: 10, fontWeight: '800' }}>
+                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* Overall Status Indicator / ADV-064: 1-Tap Header Quick Online/Offline Toggle */}
+          <TouchableOpacity 
+            activeOpacity={0.8}
+            style={[styles.statusIndicator, { backgroundColor: colors.backgroundCard, paddingHorizontal: 10, paddingVertical: 4 }]}
+            onPress={() => handleMasterToggle(!isAnyServiceOnline)}
+          >
+            <View style={[styles.statusDot, { backgroundColor: isAnyServiceOnline ? colors.success : colors.error }]} />
+            <Text style={[styles.statusText, { color: isAnyServiceOnline ? colors.success : colors.error, fontWeight: '700' }]}>
+              {isAnyServiceOnline ? 'ONLINE' : 'OFFLINE'}
+            </Text>
+            <View pointerEvents="none">
+              <Switch
+                value={isAnyServiceOnline}
+                trackColor={{ false: colors.border, true: colors.success }}
+                thumbColor="#FFF"
+                style={{ transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }] }}
+              />
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
+
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -425,12 +556,13 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Live Status Controls - Chat Only */}
+        {/* Live Status Controls - Chat, Audio Call & Video Call */}
         <View style={[styles.liveControlsCard, { backgroundColor: colors.backgroundCard }]}>
-          <Text style={[styles.liveTitle, { color: colors.textPrimary }]}>Go Live - Chat Availability</Text>
-          <Text style={[styles.liveSubtitle, { color: colors.textSecondary }]}>Toggle to start receiving chat readings</Text>
+          <Text style={[styles.liveTitle, { color: colors.textPrimary }]}>Go Live - Reading Availability</Text>
+          <Text style={[styles.liveSubtitle, { color: colors.textSecondary }]}>Toggle services to receive Chat, Audio & Video calls</Text>
           
-          <View style={[styles.serviceToggle, { borderBottomWidth: 0 }]}>
+          {/* Live Chat Toggle */}
+          <View style={[styles.serviceToggle, { borderBottomColor: colors.border }]}>
             <View style={styles.serviceInfo}>
               <Ionicons name="chatbubble" size={22} color={chatOnline ? colors.success : colors.textMuted} />
               <View>
@@ -445,44 +577,93 @@ export default function DashboardScreen() {
               thumbColor="#FFF"
             />
           </View>
+
+          {/* Audio Call Toggle */}
+          <View style={[styles.serviceToggle, { borderBottomColor: colors.border }]}>
+            <View style={styles.serviceInfo}>
+              <Ionicons name="call" size={22} color={phoneOnline ? colors.success : colors.textMuted} />
+              <View>
+                <Text style={[styles.serviceName, { color: colors.textPrimary }]}>Audio Call</Text>
+                <Text style={[styles.serviceRate, { color: colors.textMuted }]}>${psychic?.phone_rate || '5.99'}/min</Text>
+              </View>
+            </View>
+            <Switch
+              value={phoneOnline}
+              onValueChange={handlePhoneToggle}
+              trackColor={{ false: colors.border, true: colors.success }}
+              thumbColor="#FFF"
+            />
+          </View>
+
+          {/* Video Call Toggle */}
+          <View style={[styles.serviceToggle, { borderBottomWidth: 0 }]}>
+            <View style={styles.serviceInfo}>
+              <Ionicons name="videocam" size={22} color={videoOnline ? colors.success : colors.textMuted} />
+              <View>
+                <Text style={[styles.serviceName, { color: colors.textPrimary }]}>Video Call</Text>
+                <Text style={[styles.serviceRate, { color: colors.textMuted }]}>${psychic?.video_rate || (psychic as any)?.video_call_rate || '7.99'}/min</Text>
+              </View>
+            </View>
+            <Switch
+              value={videoOnline}
+              onValueChange={handleVideoToggle}
+              trackColor={{ false: colors.border, true: colors.success }}
+              thumbColor="#FFF"
+            />
+          </View>
         </View>
 
         {/* Weekly Earnings Chart */}
         <View style={[styles.earningsChartCard, { backgroundColor: colors.backgroundCard }]}>
           <View style={styles.earningsChartHeader}>
             <Text style={[styles.liveTitle, { color: colors.textPrimary }]}>Weekly Earnings</Text>
-            <Text style={[styles.earningsTotal, { color: colors.primary }]}>${stats.weeklyEarnings.toFixed(2)}</Text>
+            <Text style={[styles.earningsTotal, { color: colors.primary }]}>${dashboardStats.weeklyEarnings.toFixed(2)}</Text>
           </View>
           <Text style={[styles.liveSubtitle, { color: colors.textSecondary, marginBottom: SPACING.md }]}>Last 7 days performance</Text>
           
           <View style={styles.chartContainer}>
             {(() => {
-              const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-              const earnings = [45.50, 28.00, 89.50, 120.30, 95.00, 145.50, 78.00];
-              const maxEarning = Math.max(...earnings);
-              const avgEarning = earnings.reduce((a, b) => a + b, 0) / earnings.length;
+              const items = dashboardStats.dailyBreakdown && dashboardStats.dailyBreakdown.length > 0
+                ? dashboardStats.dailyBreakdown
+                : [
+                    { day: 'Mon', earnings: 0 },
+                    { day: 'Tue', earnings: 0 },
+                    { day: 'Wed', earnings: 0 },
+                    { day: 'Thu', earnings: 0 },
+                    { day: 'Fri', earnings: 0 },
+                    { day: 'Sat', earnings: 0 },
+                    { day: 'Sun', earnings: 0 },
+                  ];
+              const earnings = items.map((d: any) => Number(d.earnings || 0));
+              const maxEarning = Math.max(...earnings, 1);
+              const totalSum = earnings.reduce((a, b) => a + b, 0);
+              const avgEarning = totalSum / (earnings.length || 1);
               
-              return earnings.map((earning, index) => {
-                const barHeight = (earning / maxEarning) * 100;
-                const isHigh = earning >= avgEarning * 1.2;
-                const isLow = earning < avgEarning * 0.7;
-                const barColor = isHigh ? colors.success : isLow ? colors.error : colors.primary;
+              return items.map((item: any, index: number) => {
+                const earning = Number(item.earnings || 0);
+                const barHeight = earning > 0 ? Math.max((earning / maxEarning) * 100, 12) : 6;
+                const isHigh = earning > 0 && totalSum > 0 && earning >= avgEarning * 1.15;
+                const isLow = earning > 0 && totalSum > 0 && earning < avgEarning * 0.7;
+                const barColor = isHigh ? colors.success : isLow ? colors.error : (earning > 0 ? colors.primary : colors.border);
                 
                 return (
                   <View key={index} style={styles.chartBarContainer}>
-                    <Text style={[styles.chartValue, { color: barColor }]}>${earning.toFixed(0)}</Text>
+                    <Text style={[styles.chartValue, { color: earning > 0 ? barColor : colors.textMuted }]}>
+                      ${earning.toFixed(0)}
+                    </Text>
                     <View style={styles.chartBarWrapper}>
                       <View 
                         style={[
                           styles.chartBar, 
                           { 
-                            height: `${Math.max(barHeight, 10)}%`,
+                            height: `${barHeight}%`,
                             backgroundColor: barColor,
+                            opacity: earning > 0 ? 1 : 0.4,
                           }
                         ]} 
                       />
                     </View>
-                    <Text style={[styles.chartDay, { color: colors.textMuted }]}>{weekDays[index]}</Text>
+                    <Text style={[styles.chartDay, { color: colors.textMuted }]}>{item.day}</Text>
                   </View>
                 );
               });
@@ -503,21 +684,39 @@ export default function DashboardScreen() {
 
         {/* Quick Stats */}
         <View style={styles.statsGrid}>
-          <View style={[styles.statCard, { backgroundColor: colors.backgroundCard }]}>
+          <TouchableOpacity 
+            activeOpacity={0.7}
+            style={[styles.statCard, { backgroundColor: colors.backgroundCard }]}
+            onPress={() => router.push('/reviews')}
+          >
             <View style={[styles.statIcon, { backgroundColor: colors.gold + '20' }]}>
               <Ionicons name="star" size={24} color={colors.gold} />
             </View>
-            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.averageRating}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Rating</Text>
-          </View>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>
+              {dashboardStats.averageRating.toFixed(1)}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Rating</Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.textMuted} />
+            </View>
+          </TouchableOpacity>
 
-          <View style={[styles.statCard, { backgroundColor: colors.backgroundCard }]}>
+          <TouchableOpacity 
+            activeOpacity={0.7}
+            style={[styles.statCard, { backgroundColor: colors.backgroundCard }]}
+            onPress={() => router.push('/reviews')}
+          >
             <View style={[styles.statIcon, { backgroundColor: colors.secondary + '20' }]}>
               <Ionicons name="chatbubbles" size={24} color={colors.secondary} />
             </View>
-            <Text style={[styles.statValue, { color: colors.textPrimary }]}>{stats.totalReviews}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Reviews</Text>
-          </View>
+            <Text style={[styles.statValue, { color: colors.textPrimary }]}>
+              {dashboardStats.totalReviews}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Reviews</Text>
+              <Ionicons name="chevron-forward" size={13} color={colors.textMuted} />
+            </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>

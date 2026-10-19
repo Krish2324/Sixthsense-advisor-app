@@ -20,27 +20,60 @@ export default function TermsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + SPACING.md, borderBottomColor: colors.border }]}>
-        <TouchableOpacity style={[styles.backButton, { backgroundColor: colors.backgroundElevated }]} onPress={() => router.back()}>
+      <View
+        style={[
+          styles.header,
+          {
+            paddingTop: insets.top + SPACING.md,
+            backgroundColor: colors.background,
+            borderBottomColor: colors.border,
+            borderBottomWidth: 1,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={[styles.backButton, { backgroundColor: colors.backgroundElevated }]}
+          onPress={() => router.back()}
+        >
           <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Terms & Conditions</Text>
+        <Text style={[styles.headerTitle, { color: colors.textPrimary }]}>
+          Terms & Conditions
+        </Text>
         <View style={styles.placeholder} />
       </View>
 
-      {/* ADV-070: Table of Contents Quick Links */}
-      <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: SPACING.md, gap: 8 }}>
+      {/* Table of Contents Quick Links */}
+      <View
+        style={[
+          styles.tocContainer,
+          { borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.backgroundElevated },
+        ]}
+      >
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: SPACING.md, gap: 8 }}
+        >
           {[
             '1. Agreement',
             '2. Earnings & Payouts',
             '3. Code of Conduct',
+            '4. Suspension Policy',
             '6. Messaging',
             '8. Monitoring & Privacy',
             '10. New Client 4-Min',
+            '11. Badges & Tags',
+            '13. Dispute Resolution',
           ].map((title, idx) => (
-            <View key={idx} style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 }}>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: colors.primary }}>{title}</Text>
+            <View
+              key={idx}
+              style={[
+                styles.tocChip,
+                { backgroundColor: colors.primary + '25', borderColor: colors.primary + '50' },
+              ]}
+            >
+              <Text style={[styles.tocChipText, { color: colors.primary }]}>{title}</Text>
             </View>
           ))}
         </ScrollView>
@@ -48,192 +81,346 @@ export default function TermsScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 60 }]}
       >
-        <Text style={styles.lastUpdated}>Last Updated: March 2026</Text>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>1. Advisor Agreement</Text>
-          <Text style={styles.sectionText}>
-            By registering as a Psychic Advisor on our platform, you agree to provide authentic, ethical psychic readings to clients. You acknowledge that you are an independent contractor, not an employee of the platform.
+        <View style={styles.metaRow}>
+          <Ionicons name="shield-checkmark" size={18} color={colors.primary} />
+          <Text style={[styles.lastUpdated, { color: colors.textMuted }]}>
+            Last Updated: March 2026 • SixthSense Advisor Network
           </Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>2. Earnings & Payment</Text>
-          <Text style={styles.sectionText}>
-            • Advisors receive 40% of all reading fees{"\n"}
-            • Advisors receive 40% of all tips from clients{"\n"}
-            • Platform retains 60% for operational costs{"\n"}
-            • Connection fees may apply for phone/video calls and are deducted from advisor earnings{"\n"}
-            • Payments processed weekly via PayPal{"\n"}
-            • Minimum withdrawal amount: $50{"\n"}
-            • Earnings over $600/year require tax reporting (1099)
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>3. Code of Conduct</Text>
-          <Text style={styles.sectionText}>
-            Advisors must:{"\n"}
-            • Provide readings with integrity and honesty{"\n"}
-            • Respect client confidentiality{"\n"}
-            • Never make guarantees about outcomes{"\n"}
-            • Avoid dependency-creating behaviors{"\n"}
-            • Report any concerning client situations{"\n"}
-            • Maintain professional boundaries
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>4. Suspension Policy</Text>
-          <Text style={styles.sectionText}>
-            Advisors may be suspended for:{"\n"}
-            • Consistently low ratings (below 3.5 stars){"\n"}
-            • Multiple client complaints{"\n"}
-            • Fraudulent or deceptive practices{"\n"}
-            • Violating platform guidelines{"\n"}{"\n"}
-            First offense: 5-day suspension{"\n"}
-            Second offense: 30-day suspension{"\n"}
-            Third offense: Permanent removal
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>5. Content Guidelines</Text>
-          <Text style={styles.sectionText}>
-            • No explicit or adult content{"\n"}
-            • No medical, legal, or financial advice{"\n"}
-            • No promotion of self-harm or dangerous activities{"\n"}
-            • No discrimination based on race, gender, religion, etc.
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>6. Client Messaging</Text>
-          <Text style={styles.sectionText}>
-            Clients who have purchased readings may message you directly for clarifications. Key terms:{"\n"}{"\n"}
-            • Maximum 5 messages per day per person (resets at midnight){"\n"}
-            • Messages are for clarifications and doubts ONLY{"\n"}
-            • Messages are NOT for providing unpaid readings or consultations{"\n"}
-            • Abuse of messaging to avoid session charges may result in account suspension{"\n"}
-            • You will receive in-app notifications for new messages{"\n"}
-            • Respond promptly to maintain good client relationships
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>7. Tax Obligations</Text>
-          <Text style={styles.sectionText}>
-            As an independent contractor in the United States, you are responsible for:{"\n"}
-            • Reporting all earnings to the IRS{"\n"}
-            • Paying self-employment taxes{"\n"}
-            • Providing accurate W-9 information{"\n"}
-            • Keeping records of your earnings
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>8. Privacy & Data</Text>
-          <Text style={styles.sectionText}>
-            You agree to:{"\n"}
-            • Keep all client information confidential{"\n"}
-            • Not record sessions without consent{"\n"}
-            • Not share client data with third parties{"\n"}
-            • Follow all applicable privacy laws
-          </Text>
-        </View>
-
-        <View style={[styles.section, { backgroundColor: colors.error + '10', padding: SPACING.md, borderRadius: 12, borderWidth: 1, borderColor: colors.error + '30' }]}>
-          <Text style={[styles.sectionTitle, { color: colors.error }]}>8.1 CHAT RECORDING & ADMIN MONITORING</Text>
+        {/* 1. Advisor Agreement */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>01</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Advisor Agreement
+            </Text>
+          </View>
           <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
-            <Text style={{ fontWeight: '700', color: colors.error }}>⚠️ IMPORTANT NOTICE:</Text>{"\n"}{"\n"}
-            To maintain platform integrity and protect both advisors and clients, <Text style={{ fontWeight: '700' }}>ALL conversations, messages, video calls, and communications on this platform are recorded and may be reviewed by platform administrators</Text>.{"\n"}{"\n"}
-            This includes:{"\n"}
-            • All text messages and chat conversations{"\n"}
-            • Images shared within chat{"\n"}
-            • Video and phone call recordings{"\n"}
-            • Any other communications on the platform{"\n"}{"\n"}
-            Purpose of monitoring:{"\n"}
-            • Detecting fraudulent or scam activity{"\n"}
-            • Ensuring quality of service{"\n"}
-            • Investigating client complaints{"\n"}
-            • Enforcing Terms & Conditions{"\n"}{"\n"}
-            <Text style={{ fontWeight: '700', color: colors.error }}>Advisors found engaging in scams, fraudulent behavior, or policy violations will be immediately suspended without warning.</Text>{"\n"}{"\n"}
-            By continuing to use this platform, you acknowledge and consent to this monitoring.
+            By registering as a Psychic Advisor on our platform, you agree to provide authentic,
+            ethical psychic readings to clients. You acknowledge that you are an independent contractor,
+            not an employee of the platform.
           </Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>9. Mandatory Sale Participation</Text>
+        {/* 2. Earnings & Payment */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>02</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Earnings & Payment Policy
+            </Text>
+          </View>
           <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
-            As a platform advisor, you are required to participate in monthly promotional events:{"\n"}{"\n"}
-            • One mandatory sale event per month (e.g., Full Moon Sale, Equinox Special){"\n"}
-            • Sale discounts are applied automatically to your rates during the event{"\n"}
-            • Typical discounts range from 10-30% off regular rates{"\n"}
-            • You will be notified in advance of upcoming sales{"\n"}
-            • All approved advisors must participate - no opt-out available{"\n"}
-            • Sales help attract new clients and increase overall bookings{"\n"}
-            • Your earnings remain proportional (40% of discounted rate){"\n"}{"\n"}
-            Non-compliance with mandatory sales may result in account review.
+            • Advisors receive 40% of all reading fees (Chat, Audio, Video){'\n'}
+            • Advisors receive 40% of all tips given by clients{'\n'}
+            • Platform retains 60% for payment gateway, server infrastructure & client acquisition{'\n'}
+            • Connection fees for phone/video calls are handled through platform balances{'\n'}
+            • Weekly earnings withdrawals processed via PayPal and Stripe{'\n'}
+            • Minimum withdrawal threshold: $50{'\n'}
+            • Earnings over $600/year in the US require 1099 tax filing
           </Text>
         </View>
 
-        <View style={[styles.section, { backgroundColor: colors.primary + '10', padding: SPACING.md, borderRadius: 12, borderWidth: 1, borderColor: colors.primary + '30' }]}>
-          <Text style={[styles.sectionTitle, { color: colors.primary }]}>10. New Client Policy (Mandatory)</Text>
+        {/* 3. Code of Conduct */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>03</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Code of Conduct
+            </Text>
+          </View>
           <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
-            All advisors are required to provide <Text style={{ fontWeight: '700' }}>4 free minutes</Text> to new clients on their first reading:{"\n"}{"\n"}
-            <Text style={{ fontWeight: '700', color: colors.primary }}>Policy Details:</Text>{"\n"}
-            • Every new client's first 4 minutes with any advisor are FREE{"\n"}
-            • You will be notified when a client is new ("New Client" indicator){"\n"}
-            • After 4 minutes, regular session rates apply automatically{"\n"}
-            • This policy is mandatory for all advisors - no opt-out available{"\n"}
-            • Platform does not compensate for the free 4 minutes{"\n"}{"\n"}
-            <Text style={{ fontWeight: '700', color: colors.primary }}>Why This Matters:</Text>{"\n"}
-            • First impressions lead to loyal, returning clients{"\n"}
-            • New clients who have a great first experience become long-term customers{"\n"}
-            • Quality service during free time builds your reputation{"\n"}{"\n"}
-            By accepting readings, you acknowledge that new clients receive their first 4 minutes free as part of our platform policy.
+            Advisors must:{'\n'}
+            • Provide readings with utmost integrity, empathy, and honesty{'\n'}
+            • Strictly respect and protect client confidentiality{'\n'}
+            • Never make guaranteed promises regarding health, lotteries, or absolute outcomes{'\n'}
+            • Avoid emotional manipulation or dependency-creating behaviors{'\n'}
+            • Promptly report any concerning self-harm or violent client disclosures{'\n'}
+            • Maintain firm professional boundaries at all times
           </Text>
         </View>
 
-        <View style={[styles.section, { backgroundColor: colors.gold + '10', padding: SPACING.md, borderRadius: 12, borderWidth: 1, borderColor: colors.gold + '30' }]}>
-          <Text style={[styles.sectionTitle, { color: colors.gold }]}>11. Profile Tags & Badges</Text>
+        {/* 4. Suspension Policy */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>04</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Suspension & Termination Policy
+            </Text>
+          </View>
           <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
-            Advisors may earn special profile tags based on performance:{"\n"}{"\n"}
-            <Text style={{ fontWeight: '700', color: colors.gold }}>Available Tags:</Text>{"\n"}
-            • <Text style={{ fontWeight: '600' }}>Top Rated</Text> - Awarded to advisors with 4.8+ average rating{"\n"}
-            • <Text style={{ fontWeight: '600' }}>Trending</Text> - High activity and engagement in recent weeks{"\n"}
-            • <Text style={{ fontWeight: '600' }}>Featured</Text> - Handpicked by platform for exceptional service{"\n"}
-            • <Text style={{ fontWeight: '600' }}>Rising Star</Text> - New advisors showing exceptional promise{"\n"}{"\n"}
-            <Text style={{ fontWeight: '700', color: colors.error }}>Tag Removal Policy:</Text>{"\n"}
-            Tags are automatically monitored and will be <Text style={{ fontWeight: '700', color: colors.error }}>removed if ratings drop</Text>:{"\n"}
-            • Top Rated tag removed if rating falls below 4.5{"\n"}
-            • Trending tag removed after 30 days of low activity{"\n"}
-            • Featured status may be revoked for policy violations{"\n"}
-            • All tags subject to periodic review{"\n"}{"\n"}
-            Maintaining high ratings and quality service is essential to keep your earned tags.
+            Advisors may face account review or suspension for:{'\n'}
+            • Sustained low ratings (below 3.5 average stars){'\n'}
+            • Validated complaints regarding scamming, off-platform solicitation, or abuse{'\n'}
+            • Missing scheduled sessions without prior notice{'\n'}
+            • Violating platform safety guidelines{'\n'}{'\n'}
+            1st Offense: Formal warning & 5-day suspension{'\n'}
+            2nd Offense: 30-day suspension{'\n'}
+            3rd Offense: Permanent profile removal and fund forfeiture
           </Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>12. Termination</Text>
-          <Text style={styles.sectionText}>
-            Either party may terminate this agreement at any time. Upon termination, you will receive any pending earnings minus any chargebacks or refunds. You may not use platform trademarks or client lists after termination.
+        {/* 5. Content Guidelines */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>05</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Content Guidelines
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            • No explicit, sexual, or adult content{'\n'}
+            • No licensed medical diagnosis, legal counsel, or financial investment advice{'\n'}
+            • No spells or curses promising harm to others{'\n'}
+            • Zero tolerance for hate speech, harassment, or discrimination based on race, gender, religion, or orientation
           </Text>
         </View>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>10. Dispute Resolution</Text>
-          <Text style={styles.sectionText}>
-            Any disputes will be resolved through binding arbitration in accordance with United States law. Small claims court remains available for qualifying disputes.
+        {/* 6. Client Messaging */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>06</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Client Direct Messaging
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            Clients who have paid for readings may send follow-up clarification messages:{'\n'}{'\n'}
+            • Daily limit: 5 messages per client (resets automatically at midnight){'\n'}
+            • Messages are strictly for clarifications on completed readings{'\n'}
+            • Direct messages must not be used to deliver unpaid full consultations{'\n'}
+            • Off-platform payment solicitation is strictly forbidden and automatically flagged
           </Text>
         </View>
 
-        <View style={styles.acceptanceNote}>
-          <Ionicons name="checkmark-circle" size={24} color={colors.success} />
-          <Text style={styles.acceptanceText}>
-            By using this platform, you acknowledge that you have read, understood, and agree to these Terms & Conditions.
+        {/* 7. Tax Obligations */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>07</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Tax & Legal Obligations
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            As an independent service contractor, you are individually responsible for:{'\n'}
+            • Reporting earnings to local tax authorities (e.g. IRS 1099-K / 1099-NEC){'\n'}
+            • Paying self-employment and income taxes{'\n'}
+            • Submitting valid identity verification and tax details when requested
+          </Text>
+        </View>
+
+        {/* 8. Privacy & Data */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>08</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Privacy & Client Confidentiality
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            • Keep all client identities, birth dates, questions, and personal disclosures private{'\n'}
+            • Do not record, screen-capture, or redistribute user consultations outside the app{'\n'}
+            • Adhere to CCPA, GDPR, and international data privacy regulations
+          </Text>
+        </View>
+
+        {/* 8.1 Admin Monitoring Alert Box */}
+        <View
+          style={[
+            styles.alertCard,
+            {
+              backgroundColor: '#EF444415',
+              borderColor: '#EF444450',
+            },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <Ionicons name="warning" size={22} color="#EF4444" />
+            <Text style={[styles.alertTitle, { color: '#EF4444' }]}>
+              8.1 Chat Recording & Safety Monitoring
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textPrimary }]}>
+            To protect users and advisors from fraud, harassment, or financial scams, <Text style={{ fontWeight: '700', color: colors.textPrimary }}>all communications, messages, and calls may be reviewed by platform moderation administrators</Text>.{'\n'}{'\n'}
+            Advisors found executing scams or soliciting payments outside the SixthSense platform will be banned immediately.
+          </Text>
+        </View>
+
+        {/* 9. Mandatory Sale Participation */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>09</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Monthly Promotional Sales
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            • Active advisors participate in periodic promotional events (e.g. New Moon / Equinox specials){'\n'}
+            • Discounts (typically 10%–25%) are applied to attract new clients and drive volume{'\n'}
+            • Advisor revenue share remains proportional (40% of session revenue)
+          </Text>
+        </View>
+
+        {/* 10. New Client Policy */}
+        <View
+          style={[
+            styles.alertCard,
+            {
+              backgroundColor: colors.primary + '18',
+              borderColor: colors.primary + '50',
+            },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <Ionicons name="time" size={22} color={colors.primary} />
+            <Text style={[styles.alertTitle, { color: colors.primary }]}>
+              10. First-Time Client 4-Minute Policy
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textPrimary }]}>
+            First-time clients receive <Text style={{ fontWeight: '700', color: colors.primary }}>4 free introductory minutes</Text> during their initial reading to establish rapport. After 4 minutes, regular per-minute rates apply automatically without interruption.
+          </Text>
+        </View>
+
+        {/* 11. Profile Tags & Badges */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: '#F59E0B25' }]}>
+              <Text style={[styles.sectionNumberText, { color: '#F59E0B' }]}>11</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Profile Tags & Recognition Badges
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            Advisors can earn distinguished profile badges based on quality and activity:{'\n'}
+            • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Top Rated:</Text> Maintained 4.8+ star rating with over 50 readings{'\n'}
+            • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Trending:</Text> High volume of active clients and responsiveness{'\n'}
+            • <Text style={{ fontWeight: '700', color: colors.textPrimary }}>Rising Star:</Text> Outstanding new advisor performance in the first 30 days
+          </Text>
+        </View>
+
+        {/* 12. Termination */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>12</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Agreement Termination
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            Either party may terminate this agreement at any time. Upon termination, cleared earnings will be paid out during the subsequent weekly cycle minus any unresolved client chargebacks.
+          </Text>
+        </View>
+
+        {/* 13. Dispute Resolution */}
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: colors.backgroundCard, borderColor: colors.border },
+          ]}
+        >
+          <View style={styles.cardHeader}>
+            <View style={[styles.sectionNumberBadge, { backgroundColor: colors.primary + '25' }]}>
+              <Text style={[styles.sectionNumberText, { color: colors.primary }]}>13</Text>
+            </View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              Dispute Resolution & Jurisdiction
+            </Text>
+          </View>
+          <Text style={[styles.sectionText, { color: colors.textSecondary }]}>
+            Any disputes will be resolved through binding confidential arbitration under applicable state and federal laws.
+          </Text>
+        </View>
+
+        {/* Acceptance Note */}
+        <View
+          style={[
+            styles.acceptanceNote,
+            { backgroundColor: '#22C55E15', borderColor: '#22C55E40' },
+          ]}
+        >
+          <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
+          <Text style={[styles.acceptanceText, { color: colors.textPrimary }]}>
+            By accessing the SixthSense Advisor Portal and accepting readings, you confirm that you have read, understood, and consented to these terms and operational standards.
           </Text>
         </View>
       </ScrollView>
@@ -251,7 +438,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: SPACING.md,
     paddingBottom: SPACING.md,
-    borderBottomWidth: 1,
   },
   backButton: {
     width: 44,
@@ -262,43 +448,96 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   placeholder: {
     width: 44,
   },
+  tocContainer: {
+    paddingVertical: 10,
+  },
+  tocChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  tocChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   content: {
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.lg,
-    paddingBottom: 100,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.md,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: SPACING.md,
   },
   lastUpdated: {
     fontSize: 13,
-    marginBottom: SPACING.lg,
+    fontWeight: '500',
   },
-  section: {
-    marginBottom: SPACING.lg,
+  card: {
+    borderRadius: 14,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+  },
+  alertCard: {
+    borderRadius: 14,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 8,
+  },
+  sectionNumberBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sectionNumberText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '700',
-    marginBottom: SPACING.sm,
+    flex: 1,
+  },
+  alertTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    flex: 1,
   },
   sectionText: {
     fontSize: 14,
     lineHeight: 22,
+    fontWeight: '400',
   },
   acceptanceNote: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     padding: SPACING.md,
-    borderRadius: 12,
+    borderRadius: 14,
+    borderWidth: 1,
     gap: SPACING.sm,
-    marginTop: SPACING.md,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xl,
   },
   acceptanceText: {
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
+    fontWeight: '500',
   },
 });

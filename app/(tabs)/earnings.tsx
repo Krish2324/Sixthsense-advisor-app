@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,11 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Linking,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SPACING } from '../../src/constants/theme';
@@ -19,13 +21,27 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { setSecureItem, getSecureItem } from '../../src/services/secureStorage';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+
+const formatTxDate = (iso: string) => {
+  if (!iso) return '';
+  const d = new Date(iso.endsWith('Z') || iso.includes('+') ? iso : `${iso}Z`);
+  if (isNaN(d.getTime())) return iso;
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return `Today, ${time}`;
+  if (d.toDateString() === yest.toDateString()) return `Yesterday, ${time}`;
+  return `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`;
+};
 
 export default function EarningsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { colors } = useTheme();
-  const { user } = useAuth();
+  const { user, psychic } = useAuth();
   
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -35,64 +51,85 @@ export default function EarningsScreen() {
     lifetime: 0,
     totalTips: 0,
   });
+  const [period, setPeriod] = useState({ gross: 0, net: 0, sessions: 0 });
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   // ADV-049: Date Range Earnings Filter state
   const [timeframe, setTimeframe] = useState<'7d' | '30d' | 'month' | 'all'>('30d');
+  const timeframeRef = useRef(timeframe);
+  timeframeRef.current = timeframe;
 
   const fetchEarnings = useCallback(async () => {
+    const pid = psychic?.id || user?.id || psychic?.email;
+    if (!pid) {
+      setIsLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
-      const response = await fetch(`${BACKEND_URL}/api/payments/psychic-earnings/${user?.id}`);
+      const response = await fetch(
+        `${BACKEND_URL}/api/payments/psychic-earnings/${encodeURIComponent(pid)}?timeframe=${timeframeRef.current}`
+      );
       if (response.ok) {
         const data = await response.json();
         const newEarnings = {
-          available: data.available_balance || 0,
-          pending: data.pending_balance || 0,
-          lifetime: data.total_earnings || 0,
-          totalTips: data.total_tips || 0,
+          available: Number(data.available_balance) || 0,
+          pending: Number(data.pending_balance) || 0,
+          lifetime: Number(data.total_earnings) || 0,
+          totalTips: Number(data.total_tips) || 0,
         };
         setEarnings(newEarnings);
+        setPeriod({
+          gross: Number(data.period_gross) || 0,
+          net: Number(data.period_net) || 0,
+          sessions: Number(data.period_sessions) || 0,
+        });
+        setRecentTransactions(Array.isArray(data.transactions) ? data.transactions : []);
         // ADV-018: Encrypted financial earnings cache
-        await setSecureItem('__6th_sense_earnings_cache', JSON.stringify(newEarnings));
+        setSecureItem('__6th_sense_earnings_cache', JSON.stringify(newEarnings)).catch(() => null);
       }
-      
-      // Mock recent transactions for demo
-      setRecentTransactions([
-        { id: '1', type: 'reading', client: 'Sarah M.', amount: 12.00, date: 'Today' },
-        { id: '2', type: 'reading', client: 'Michael R.', amount: 20.00, date: 'Today' },
-        { id: '3', type: 'tip', client: 'Emma L.', amount: 5.00, date: 'Yesterday' },
-        { id: '4', type: 'reading', client: 'John D.', amount: 12.00, date: 'Yesterday' },
-        { id: '5', type: 'withdrawal', client: 'PayPal', amount: -500.00, date: 'Mar 20' },
-      ]);
     } catch (error) {
-      console.error('Error fetching earnings:', error);
-      // Use mock data on error
-      setEarnings({
-        available: 892.30,
-        pending: 145.50,
-        lifetime: 12450.00,
-        totalTips: 230.00,
-      });
-      setRecentTransactions([
-        { id: '1', type: 'reading', client: 'Sarah M.', amount: 12.00, date: 'Today' },
-        { id: '2', type: 'reading', client: 'Michael R.', amount: 20.00, date: 'Today' },
-        { id: '3', type: 'tip', client: 'Emma L.', amount: 5.00, date: 'Yesterday' },
-        { id: '4', type: 'reading', client: 'John D.', amount: 12.00, date: 'Yesterday' },
-        { id: '5', type: 'withdrawal', client: 'PayPal', amount: -500.00, date: 'Mar 20' },
-      ]);
+      console.warn('Error fetching earnings:', error);
+      // Fall back to last cached values (never fake numbers)
+      try {
+        const cached = await getSecureItem('__6th_sense_earnings_cache');
+        if (cached) setEarnings(JSON.parse(cached));
+      } catch {}
     } finally {
       setIsLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [psychic?.id, psychic?.email, user?.id]);
 
+  // Re-fetch when timeframe changes
   useEffect(() => {
     fetchEarnings();
-  }, [fetchEarnings]);
+  }, [fetchEarnings, timeframe]);
+
+  // Refresh every time the Earnings tab is opened + live poll every 10s while visible
+  useFocusEffect(
+    useCallback(() => {
+      fetchEarnings();
+      const interval = setInterval(fetchEarnings, 10000);
+      return () => clearInterval(interval);
+    }, [fetchEarnings])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchEarnings();
   };
+
+  // Revenue breakdown by session type (from real transactions in selected timeframe)
+  const breakdown = recentTransactions.reduce(
+    (acc, tx) => {
+      const key = tx.session_type === 'video' ? 'video' : tx.session_type === 'phone' ? 'phone' : 'chat';
+      acc[key] += Number(tx.amount) || 0;
+      return acc;
+    },
+    { phone: 0, video: 0, chat: 0 } as Record<'phone' | 'video' | 'chat', number>
+  );
+  const breakdownTotal = breakdown.phone + breakdown.video + breakdown.chat + earnings.totalTips;
+  const pct = (v: number) => (breakdownTotal > 0 ? Math.round((v / breakdownTotal) * 100) : 0);
 
   if (isLoading) {
     return (
@@ -103,34 +140,21 @@ export default function EarningsScreen() {
   }
 
   // ADV-052: Printable Earnings Statement PDF Generator
-  const handleDownloadStatementPDF = () => {
-    const statementHtml = `
-      <html>
-        <body style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2>6thSense Advisor Earnings Statement</h2>
-          <p><strong>Advisor ID:</strong> ${user?.id || 'PSY-1002'}</p>
-          <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-          <hr/>
-          <h3>Summary</h3>
-          <p>Available Balance: $${earnings.available.toFixed(2)}</p>
-          <p>Pending Balance: $${earnings.pending.toFixed(2)}</p>
-          <p>Lifetime Gross Revenue: $${(earnings.lifetime / 0.4).toFixed(2)}</p>
-          <p><strong>Net Advisor Earnings (40%): $${earnings.lifetime.toFixed(2)}</strong></p>
-          <hr/>
-          <p style="font-size: 11px; color: #666;">Official earnings document issued by 6thSense Psychic Advisory Platform.</p>
-        </body>
-      </html>
-    `;
-
+  const handleDownloadStatementPDF = async () => {
+    const pid = psychic?.id || user?.id || psychic?.email;
+    if (!pid) {
+      Alert.alert('Notice', 'Advisor profile not loaded yet');
+      return;
+    }
+    const url = `${BACKEND_URL}/api/payments/statement-pdf/${encodeURIComponent(pid)}?timeframe=${timeframe}`;
     if (Platform.OS === 'web') {
-      const win = window.open('', '_blank');
-      if (win) {
-        win.document.write(statementHtml);
-        win.document.close();
-        win.print();
-      }
+      if (typeof window !== 'undefined') window.open(url, '_blank');
     } else {
-      Alert.alert('PDF Statement Generated', 'Monthly earnings statement PDF downloaded to files.');
+      try {
+        await WebBrowser.openBrowserAsync(url);
+      } catch {
+        Linking.openURL(url);
+      }
     }
   };
 
@@ -222,23 +246,23 @@ export default function EarningsScreen() {
             </View>
             <View>
               <Text style={{ fontSize: 15, fontWeight: '700', color: colors.textPrimary }}>Platform Fee & Payout Split</Text>
-              <Text style={{ fontSize: 12, color: colors.textSecondary }}>Standard 40% Advisor / 60% Platform Split</Text>
+              <Text style={{ fontSize: 12, color: colors.textSecondary }}>40% Advisor / 60% Platform • {period.sessions} session{period.sessions === 1 ? '' : 's'}</Text>
             </View>
           </View>
           
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <Text style={{ fontSize: 13, color: colors.textMuted }}>Gross Reading Revenue</Text>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>${(earnings.lifetime / 0.4).toFixed(2)}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>${period.gross.toFixed(2)}</Text>
           </View>
           
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <Text style={{ fontSize: 13, color: colors.textMuted }}>Platform Operations Fee (60%)</Text>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error }}>-${((earnings.lifetime / 0.4) * 0.6).toFixed(2)}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error }}>-${Math.max(0, period.gross - period.net).toFixed(2)}</Text>
           </View>
           
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
             <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }}>Advisor Net Earnings (40%)</Text>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: colors.success }}>${earnings.lifetime.toFixed(2)}</Text>
+            <Text style={{ fontSize: 15, fontWeight: '800', color: colors.success }}>${period.net.toFixed(2)}</Text>
           </View>
         </View>
 
@@ -263,44 +287,44 @@ export default function EarningsScreen() {
             {/* Voice Calls */}
             <View style={{ marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>📞 Voice Readings (45%)</Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${(earnings.lifetime * 0.45).toFixed(2)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>📞 Audio Calls ({pct(breakdown.phone)}%)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${breakdown.phone.toFixed(2)}</Text>
               </View>
               <View style={{ height: 8, backgroundColor: colors.backgroundElevated, borderRadius: 4, overflow: 'hidden' }}>
-                <View style={{ width: '45%', height: '100%', backgroundColor: colors.primary }} />
+                <View style={{ width: `${pct(breakdown.phone)}%`, height: '100%', backgroundColor: colors.primary }} />
               </View>
             </View>
 
             {/* Video Sessions */}
             <View style={{ marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>📹 Video Sessions (30%)</Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${(earnings.lifetime * 0.30).toFixed(2)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>📹 Video Calls ({pct(breakdown.video)}%)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${breakdown.video.toFixed(2)}</Text>
               </View>
               <View style={{ height: 8, backgroundColor: colors.backgroundElevated, borderRadius: 4, overflow: 'hidden' }}>
-                <View style={{ width: '30%', height: '100%', backgroundColor: colors.secondary }} />
+                <View style={{ width: `${pct(breakdown.video)}%`, height: '100%', backgroundColor: colors.secondary }} />
               </View>
             </View>
 
             {/* Chat Messages */}
             <View style={{ marginBottom: 14 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>💬 Live Chat (20%)</Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${(earnings.lifetime * 0.20).toFixed(2)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>💬 Live Chat ({pct(breakdown.chat)}%)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${breakdown.chat.toFixed(2)}</Text>
               </View>
               <View style={{ height: 8, backgroundColor: colors.backgroundElevated, borderRadius: 4, overflow: 'hidden' }}>
-                <View style={{ width: '20%', height: '100%', backgroundColor: '#F1C40F' }} />
+                <View style={{ width: `${pct(breakdown.chat)}%`, height: '100%', backgroundColor: '#F1C40F' }} />
               </View>
             </View>
 
             {/* Client Tips */}
             <View>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>🎁 Client Tips (5%)</Text>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${(earnings.lifetime * 0.05).toFixed(2)}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>🎁 Client Tips ({pct(earnings.totalTips)}%)</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>${earnings.totalTips.toFixed(2)}</Text>
               </View>
               <View style={{ height: 8, backgroundColor: colors.backgroundElevated, borderRadius: 4, overflow: 'hidden' }}>
-                <View style={{ width: '5%', height: '100%', backgroundColor: '#E74C3C' }} />
+                <View style={{ width: `${pct(earnings.totalTips)}%`, height: '100%', backgroundColor: '#E74C3C' }} />
               </View>
             </View>
 
@@ -311,6 +335,11 @@ export default function EarningsScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Recent Transactions</Text>
           
+          {recentTransactions.length === 0 && (
+            <View style={[styles.txCard, { backgroundColor: colors.backgroundCard, justifyContent: 'center' }]}>
+              <Text style={{ color: colors.textSecondary, fontSize: 13 }}>No completed sessions in this period yet.</Text>
+            </View>
+          )}
           {recentTransactions.map((tx) => (
             <View key={tx.id} style={[styles.txCard, { backgroundColor: colors.backgroundCard }]}>
               <View style={[
@@ -318,7 +347,7 @@ export default function EarningsScreen() {
                 { backgroundColor: tx.amount > 0 ? colors.success + '20' : colors.error + '20' }
               ]}>
                 <Ionicons
-                  name={tx.type === 'withdrawal' ? 'arrow-up' : tx.type === 'tip' ? 'heart' : 'chatbubble'}
+                  name={tx.type === 'withdrawal' ? 'arrow-up' : tx.type === 'tip' ? 'heart' : tx.session_type === 'video' ? 'videocam' : tx.session_type === 'phone' ? 'call' : 'chatbubble'}
                   size={20}
                   color={tx.amount > 0 ? colors.success : colors.error}
                 />
@@ -328,9 +357,9 @@ export default function EarningsScreen() {
                   {tx.type === 'tip' ? `Tip from ${tx.client}` : tx.client}
                 </Text>
                 <Text style={[styles.txType, { color: colors.textSecondary }]}>
-                  {tx.type === 'tip' ? 'Client Tip' : tx.type === 'reading' ? 'Reading' : tx.type === 'withdrawal' ? 'Withdrawal' : tx.type}
+                  {tx.type === 'tip' ? 'Client Tip' : tx.type === 'withdrawal' ? 'Withdrawal' : `${tx.session_type === 'video' ? 'Video Call' : tx.session_type === 'phone' ? 'Audio Call' : 'Live Chat'}${tx.duration_seconds ? ` • ${Math.floor(tx.duration_seconds / 60)}m ${tx.duration_seconds % 60}s` : ''}`}
                 </Text>
-                <Text style={[styles.txDate, { color: colors.textMuted }]}>{tx.date}</Text>
+                <Text style={[styles.txDate, { color: colors.textMuted }]}>{formatTxDate(tx.date)}</Text>
               </View>
               <Text style={[
                 styles.txAmount,

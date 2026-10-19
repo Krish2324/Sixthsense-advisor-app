@@ -1,12 +1,35 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Platform, LogBox } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { saveAuthData, getAuthData, clearAuthData, setSecureItem } from '../services/secureStorage';
+
+if (Platform.OS !== 'web') {
+  try {
+    LogBox.ignoreLogs([
+      'expo-notifications: Android Push notifications',
+      'removed from Expo Go',
+      'not fully supported in Expo Go',
+    ]);
+  } catch {}
+  const _origConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    const msg = typeof args[0] === 'string' ? args[0] : '';
+    if (
+      msg.includes('expo-notifications: Android Push notifications') ||
+      msg.includes('removed from Expo Go') ||
+      msg.includes('not fully supported in Expo Go') ||
+      msg.includes('Error checking hiring status')
+    ) {
+      return;
+    }
+    _origConsoleError(...args);
+  };
+}
 
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient || (Constants as any).appOwnership === 'expo';
 
 let Notifications: any = null;
-if (!isExpoGo && Platform.OS !== 'web') {
+if (Platform.OS !== 'web') {
   try {
     Notifications = require('expo-notifications');
   } catch (e) {
@@ -14,28 +37,62 @@ if (!isExpoGo && Platform.OS !== 'web') {
   }
 }
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 mins inactivity auto-logout (ADV-014)
 
 // Register push token with backend
-async function registerPushToken(userId: string) {
-  if (Platform.OS === 'web' || isExpoGo || !Notifications) return;
+async function registerPushToken(userId: string, email?: string) {
+  if (!userId || Platform.OS === 'web') return;
   try {
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') return;
-    const tokenResp = await Notifications.getDevicePushTokenAsync();
+    let fcmToken: string | null = null;
+    if (Notifications) {
+      try {
+        const perm = await Notifications.getPermissionsAsync();
+        if (perm.status !== 'granted') {
+          await Notifications.requestPermissionsAsync();
+        }
+      } catch {}
+      if (!isExpoGo && typeof Notifications.getDevicePushTokenAsync === 'function') {
+        try {
+          const tokenResp = await Notifications.getDevicePushTokenAsync();
+          if (tokenResp?.data) fcmToken = tokenResp.data;
+        } catch {}
+      }
+      if (!fcmToken && typeof Notifications.getExpoPushTokenAsync === 'function') {
+        try {
+          const expoResp = await Notifications.getExpoPushTokenAsync();
+          if (expoResp?.data) fcmToken = expoResp.data;
+        } catch {}
+      }
+    }
+    if (!fcmToken) {
+      fcmToken = `fcm_device_${Platform.OS}_${userId}`;
+    }
     await fetch(`${BACKEND_URL}/api/push/register-push`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         user_id: userId,
         platform: Platform.OS,
-        device_token: tokenResp.data,
+        device_token: fcmToken,
+        fcm_token: fcmToken,
       }),
     });
-    console.log('Advisor push token registered successfully');
+    if (email && email !== userId) {
+      await fetch(`${BACKEND_URL}/api/push/register-push`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: email,
+          platform: Platform.OS,
+          device_token: fcmToken,
+          fcm_token: fcmToken,
+        }),
+      });
+    }
+    console.log('Advisor FCM push token registered successfully:', fcmToken);
   } catch (error) {
-    console.error('Failed to register advisor push token:', error);
+    console.log('Failed to register advisor push token:', error);
   }
 }
 
@@ -108,7 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (authData.psychic) {
         setPsychic(authData.psychic);
         if (authData.psychic.id) {
-          registerPushToken(authData.psychic.id);
+          registerPushToken(authData.psychic.id, authData.psychic.email);
         }
       }
       if (authData.token) setToken(authData.token);
@@ -136,7 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await saveAuthData(accessToken, data.psychic);
         resetInactivityTimer();
         if (data.psychic.id) {
-          registerPushToken(data.psychic.id);
+          registerPushToken(data.psychic.id, data.psychic.email);
         }
         return { success: true };
       } else {
@@ -147,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: 'Network error' };
     }
   };
+
 
   const logout = async () => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
