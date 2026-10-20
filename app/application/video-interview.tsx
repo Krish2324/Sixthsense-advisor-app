@@ -233,7 +233,13 @@ export default function VideoInterviewScreen() {
         <View style={[styles.header, { paddingTop: insets.top + SPACING.md }]}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={() => {
+              if (router.canGoBack()) {
+                router.back();
+              } else {
+                router.replace('/application');
+              }
+            }}
           >
             <Ionicons name="close" size={24} color="#FFF" />
           </TouchableOpacity>

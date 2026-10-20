@@ -80,26 +80,38 @@ export default function LoginScreen() {
     setLoginError(null);
     
     try {
-      // First check if this email has a pending/rejected application
-      const appResponse = await fetch(`${BACKEND_URL}/api/applications/email/${email.toLowerCase()}`);
-      const appData = await appResponse.json();
-      
-      if (appResponse.ok && appData) {
-        // User has an application
-        if (appData.status === 'pending') {
+      // Check if this email has a pending or rejected advisor application
+      const appResponse = await fetch(`${BACKEND_URL}/api/applications/email/${encodeURIComponent(email.toLowerCase())}`);
+      if (appResponse.ok) {
+        const appData = await appResponse.json();
+        if (appData && (appData.status === 'pending' || appData.status === 'under_review')) {
           setIsLoading(false);
-          router.replace('/application/pending');
+          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+          await AsyncStorage.setItem('signup_email', email.toLowerCase());
+          router.replace({
+            pathname: '/application/pending',
+            params: { 
+              email: email.toLowerCase(),
+              name: appData.full_name || '',
+              status: 'pending'
+            }
+          });
           return;
-        } else if (appData.status === 'rejected') {
+        } else if (appData && appData.status === 'rejected') {
           setIsLoading(false);
-          Alert.alert(
-            'Account Rejected',
-            'Your application was not approved. You cannot access this app.',
-            [{ text: 'OK', style: 'default' }]
-          );
+          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+          await AsyncStorage.setItem('signup_email', email.toLowerCase());
+          router.replace({
+            pathname: '/application/pending',
+            params: { 
+              email: email.toLowerCase(),
+              name: appData.full_name || '',
+              status: 'rejected',
+              reason: appData.rejection_reason || 'Application does not meet requirements.'
+            }
+          });
           return;
         }
-        // If approved, continue with login
       }
       
       // Proceed with login
@@ -110,6 +122,22 @@ export default function LoginScreen() {
         router.replace('/(tabs)/dashboard');
       } else {
         const errorMessage = result.error || 'Invalid credentials';
+        
+        // Check if application is pending or rejected
+        if (errorMessage.toLowerCase().includes('review') || errorMessage.toLowerCase().includes('pending')) {
+          router.replace({
+            pathname: '/application/pending',
+            params: { email: email.toLowerCase(), status: 'pending' }
+          });
+          return;
+        }
+        if (errorMessage.toLowerCase().includes('rejected') || errorMessage.toLowerCase().includes('not approved')) {
+          router.replace({
+            pathname: '/application/pending',
+            params: { email: email.toLowerCase(), status: 'rejected' }
+          });
+          return;
+        }
         
         // Check if account doesn't exist
         if (errorMessage.toLowerCase().includes('not found') || 

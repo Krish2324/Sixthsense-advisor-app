@@ -13,11 +13,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import { useAuth } from '../../src/context/AuthContext';
@@ -32,7 +34,7 @@ const STEPS = [
   { id: 4, title: 'Intro Video', icon: 'play-circle' },
   { id: 5, title: 'Tax Documents', icon: 'document-text' },
   { id: 6, title: 'Payment', icon: 'wallet' },
-  { id: 7, title: 'Video Interview', icon: 'videocam' },
+  { id: 7, title: 'Review', icon: 'checkmark-circle' },
 ];
 
 // Love & Relationships sub-services
@@ -62,6 +64,8 @@ export default function ApplicationScreen() {
   const [introVideoRecorded, setIntroVideoRecorded] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   // W-8BEN Picker states
   const [showW8CountryPicker, setShowW8CountryPicker] = useState(false);
@@ -83,82 +87,150 @@ export default function ApplicationScreen() {
     };
   }, []);
   
-  // Check if returning from intro video recording
+  // Pre-load saved application data (for resubmission, video return, or editing drafts)
   useEffect(() => {
     const loadSavedData = async () => {
       if (params.videoCompleted === 'true') {
         setIntroVideoRecorded(true);
         setCurrentStep(5); // Advance to Tax Documents step
-        
-        // Load saved form data from AsyncStorage
-        try {
-          const storedData = await AsyncStorage.getItem('application_data');
-          if (storedData) {
-            const savedData = JSON.parse(storedData);
-            setFormData(prev => ({
-              ...prev,
-              fullName: savedData.full_name || '',
-              email: savedData.email || '',
-              phone: savedData.phone || '',
-              country: savedData.country || '',
-              yearsExperience: savedData.years_experience || '',
-              specialties: savedData.specialties || [],
-              loveServices: savedData.love_services || [],
-              bio: savedData.bio || '',
-              background: savedData.background || '',
-              toolsUsed: savedData.tools_used || [],
-            }));
-          }
-        } catch (error) {
-          console.error('Error loading saved form data:', error);
+      }
+      
+      try {
+        let savedData: any = null;
+        const storedData = await AsyncStorage.getItem('application_data');
+        if (storedData) {
+          savedData = JSON.parse(storedData);
         }
+
+        // If not in storage or resubmitting, fetch from backend via email
+        const targetEmail = (params.email as string) || savedData?.email || '';
+        if ((!savedData || params.resubmit === 'true') && targetEmail) {
+          try {
+            const res = await fetch(`${BACKEND_URL}/api/applications/email/${encodeURIComponent(targetEmail.toLowerCase())}`);
+            if (res.ok) {
+              const remoteData = await res.json();
+              if (remoteData) {
+                savedData = { ...(savedData || {}), ...remoteData };
+              }
+            }
+          } catch {}
+        }
+
+        if (savedData) {
+          if (savedData.video_url || savedData.intro_video_url) {
+            setIntroVideoRecorded(true);
+          }
+          setFormData(prev => ({
+            ...prev,
+            fullName: savedData.full_name || savedData.name || prev.fullName,
+            email: savedData.email || prev.email,
+            phone: savedData.phone || prev.phone,
+            country: savedData.country || prev.country,
+            profilePicture: savedData.profile_picture || prev.profilePicture,
+            password: savedData.password || prev.password,
+            confirmPassword: savedData.confirmPassword || prev.confirmPassword,
+            yearsExperience: String(savedData.years_experience || savedData.experience || prev.yearsExperience || ''),
+            specialties: Array.isArray(savedData.specialties) && savedData.specialties.length > 0 ? savedData.specialties : prev.specialties,
+            loveServices: Array.isArray(savedData.love_services) ? savedData.love_services : prev.loveServices,
+            bio: savedData.bio || prev.bio,
+            background: savedData.background || prev.background,
+            toolsUsed: Array.isArray(savedData.tools_used) ? savedData.tools_used : prev.toolsUsed,
+            bankName: savedData.bank_name || prev.bankName,
+            accountNumber: savedData.account_number || prev.accountNumber,
+            routingNumber: savedData.routing_number || prev.routingNumber,
+            paypalEmail: savedData.paypal_email || prev.paypalEmail,
+            w9Name: savedData.w9Name || savedData.full_name || prev.w9Name,
+            w8Name: savedData.w8Name || savedData.full_name || prev.w8Name,
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading saved form data:', error);
       }
     };
     
     loadSavedData();
-  }, [params.videoCompleted]);
+  }, [params.videoCompleted, params.resubmit, params.email]);
 
-  // Auto-populate email and name from AuthContext OR AsyncStorage
-  useEffect(() => {
-    const loadUserData = async () => {
-      if (psychic?.email) {
-        setFormData(prev => ({
-          ...prev,
-          email: psychic.email,
-          fullName: prev.fullName || psychic.name || '',
-        }));
-      } else {
-        // Check for email stored during signup redirect
-        try {
-          const signupEmail = await AsyncStorage.getItem('signup_email');
-          if (signupEmail) {
-            setFormData(prev => ({
-              ...prev,
-              email: signupEmail,
-            }));
+  // Profile picture image picker handlers
+  const handlePickProfilePicture = async () => {
+    Alert.alert(
+      'Profile Photo',
+      'Choose an option to upload your advisor profile photo',
+      [
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestCameraPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission Required', 'Camera permission is needed to take a photo.');
+              return;
+            }
+            const res = await ImagePicker.launchCameraAsync({
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+              base64: true,
+            });
+            if (!res.canceled && res.assets && res.assets[0]) {
+              processProfileImage(res.assets[0]);
+            }
+          },
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: async () => {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+              Alert.alert('Permission Required', 'Photo library permission is needed to select a photo.');
+              return;
+            }
+            const res = await ImagePicker.launchImageLibraryAsync({
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+              base64: true,
+            });
+            if (!res.canceled && res.assets && res.assets[0]) {
+              processProfileImage(res.assets[0]);
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const processProfileImage = async (asset: ImagePicker.ImagePickerAsset) => {
+    setFormData(prev => ({ ...prev, profilePicture: asset.uri }));
+
+    if (asset.base64) {
+      try {
+        const uploadRes = await fetch(`${BACKEND_URL}/api/storage/upload-base64`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: 'applicant_' + Date.now(),
+            base64_data: asset.base64,
+            content_type: asset.mimeType || 'image/jpeg',
+            purpose: 'profile',
+          }),
+        });
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          if (uploadData?.url) {
+            setFormData(prev => ({ ...prev, profilePicture: uploadData.url }));
           }
-        } catch (error) {
-          console.error('Error loading signup email:', error);
         }
+      } catch (err) {
+        console.warn('Profile photo upload error, using local URI:', err);
       }
-    };
-    loadUserData();
-  }, [psychic]);
+    }
+  };
 
-  // ADV-056: Real-time form auto-save and restoration
-  useEffect(() => {
-    AsyncStorage.getItem('advisor_application_draft').then(raw => {
-      if (raw && !params.videoCompleted) {
-        const parsed = JSON.parse(raw);
-        if (parsed.formData) setFormData(parsed.formData);
-        if (parsed.currentStep) setCurrentStep(parsed.currentStep);
-      }
-    }).catch(() => null);
-  }, []);
-  
-  // Form data
+  // Form data - starts completely blank for new applicants
   const [formData, setFormData] = useState({
     // Personal Info
+    profilePicture: '',
     fullName: '',
     email: '',
     phone: '',
@@ -312,12 +384,11 @@ export default function ApplicationScreen() {
     if (!formData.fullName.trim()) return 'Please enter your full legal name';
     if (!formData.email.trim()) return 'Please enter your email address';
     if (!formData.email.includes('@')) return 'Please enter a valid email address';
-    if (!psychic) {
-      if (!formData.password) return 'Please create a secure password for your account';
-      const strength = validatePasswordStrength(formData.password);
-      if (!strength.valid) return strength.error || 'Password does not meet security requirements';
-      if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
-    }
+    if (!formData.phone.trim()) return 'Please enter your phone number';
+    if (!formData.password) return 'Please create a secure password for your account';
+    const strength = validatePasswordStrength(formData.password);
+    if (!strength.valid) return strength.error || 'Password does not meet security requirements';
+    if (formData.password !== formData.confirmPassword) return 'Passwords do not match';
     // Phone number is OPTIONAL - removed validation per Apple guidelines 5.1.1(v)
     if (!formData.country) return 'Please select your country of residence';
     return null;
@@ -407,6 +478,7 @@ export default function ApplicationScreen() {
       case 4: return validateStep4(); // Intro Video
       case 5: return validateStep5(); // Tax Documents
       case 6: return validateStep6(); // Payment
+      case 7: return null; // Review Step
       default: return null;
     }
   };
@@ -419,30 +491,42 @@ export default function ApplicationScreen() {
       return;
     }
 
-    // Step 4 is Intro Video - navigate to recording screen
+    // Step 4 is Intro Video
     if (currentStep === 4) {
-      // Save current data before going to intro video
-      const applicationData = {
-        full_name: formData.fullName,
-        email: formData.email,
-        phone: formData.phone,
-        country: formData.country,
-        years_experience: formData.yearsExperience,
-        specialties: formData.specialties,
-        love_services: formData.loveServices,
-        bio: formData.bio,
-        background: formData.background,
-        tools_used: formData.toolsUsed,
-      };
-      await AsyncStorage.setItem('application_data', JSON.stringify(applicationData));
-      router.push('/application/intro-video');
-      return;
+      if (!introVideoRecorded) {
+        // Save current data before going to intro video
+        const applicationData = {
+          full_name: formData.fullName,
+          email: formData.email,
+          phone: formData.phone,
+          country: formData.country,
+          profile_picture: formData.profilePicture,
+          password: formData.password,
+          confirmPassword: formData.confirmPassword,
+          years_experience: formData.yearsExperience,
+          specialties: formData.specialties,
+          love_services: formData.loveServices,
+          bio: formData.bio,
+          background: formData.background,
+          tools_used: formData.toolsUsed,
+          bank_name: formData.bankName,
+          account_number: formData.accountNumber,
+          routing_number: formData.routingNumber,
+        };
+        await AsyncStorage.setItem('application_data', JSON.stringify(applicationData));
+        router.push('/application/intro-video');
+        return;
+      } else {
+        // Intro video already completed, proceed to step 5
+        setCurrentStep(5);
+        return;
+      }
     }
 
-    if (currentStep < 6) {
+    if (currentStep < 7) {
       setCurrentStep(currentStep + 1);
     } else {
-      // Step 6 completed - submit application to backend
+      // Step 7: Final confirmation - submit application to backend
       setIsSubmitting(true);
       try {
         const storedData = await AsyncStorage.getItem('application_data');
@@ -453,6 +537,7 @@ export default function ApplicationScreen() {
           email: (formData.email || stored.email || '').toLowerCase().trim(),
           phone: formData.phone || stored.phone || '',
           country: formData.country || stored.country || 'India',
+          profile_picture: formData.profilePicture || stored.profile_picture || undefined,
           years_experience: String(formData.yearsExperience || stored.years_experience || '1'),
           specialties: formData.specialties.length > 0 ? formData.specialties : (stored.specialties || ['Tarot Cards']),
           love_services: formData.loveServices.length > 0 ? formData.loveServices : (stored.love_services || []),
@@ -502,7 +587,11 @@ export default function ApplicationScreen() {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     } else {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace('/(auth)/login');
+      }
     }
   };
 
@@ -539,30 +628,59 @@ export default function ApplicationScreen() {
       <Text style={styles.stepTitle}>Personal Information</Text>
       <Text style={styles.stepSubtitle}>Confirm your details for your advisor profile</Text>
 
-      {/* Profile Preview from logged-in account */}
-      {psychic && (
-        <View style={styles.profilePreviewCard}>
-          <View style={styles.profilePreviewRow}>
-            {psychic.profile_picture ? (
-              <Image 
-                source={{ uri: psychic.profile_picture }} 
-                style={styles.profilePreviewImage} 
-              />
-            ) : (
-              <View style={styles.profilePreviewPlaceholder}>
-                <Ionicons name="person" size={32} color={COLORS.textMuted} />
-              </View>
-            )}
-            <View style={styles.profilePreviewInfo}>
-              <Text style={styles.profilePreviewName}>{psychic.name || 'Your Name'}</Text>
-              <Text style={styles.profilePreviewEmail}>{psychic.email || 'your@email.com'}</Text>
-            </View>
+      {/* Profile Photo Upload */}
+      <View style={{ alignItems: 'center', marginBottom: SPACING.lg, marginTop: SPACING.xs }}>
+        <TouchableOpacity 
+          style={{
+            width: 104,
+            height: 104,
+            borderRadius: 52,
+            backgroundColor: 'rgba(124, 77, 255, 0.12)',
+            borderWidth: 2,
+            borderColor: formData.profilePicture ? COLORS.primary : 'rgba(124, 77, 255, 0.4)',
+            borderStyle: formData.profilePicture ? 'solid' : 'dashed',
+            justifyContent: 'center',
+            alignItems: 'center',
+            overflow: 'hidden',
+          }}
+          onPress={handlePickProfilePicture}
+          activeOpacity={0.8}
+        >
+          {formData.profilePicture ? (
+            <Image 
+              source={{ uri: formData.profilePicture }} 
+              style={{ width: '100%', height: '100%' }} 
+            />
+          ) : (
+            <Ionicons name="camera" size={38} color={COLORS.primary} />
+          )}
+          <View 
+            style={{
+              position: 'absolute',
+              bottom: 2,
+              right: 2,
+              backgroundColor: COLORS.primary,
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderWidth: 2,
+              borderColor: '#0F081D',
+            }}
+          >
+            <Ionicons name={formData.profilePicture ? "pencil" : "add"} size={16} color="#FFF" />
           </View>
-          <Text style={styles.profilePreviewHint}>
-            This information is pulled from your account
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handlePickProfilePicture} style={{ marginTop: 8, alignItems: 'center' }}>
+          <Text style={{ color: COLORS.primary, fontWeight: '700', fontSize: 14 }}>
+            {formData.profilePicture ? 'Change Profile Photo' : 'Upload Profile Photo'}
           </Text>
-        </View>
-      )}
+          <Text style={{ color: COLORS.textMuted, fontSize: 12, marginTop: 2 }}>
+            Tap to select from gallery or camera
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>Display Name <Text style={styles.required}>*</Text></Text>
@@ -571,8 +689,36 @@ export default function ApplicationScreen() {
           style={styles.input}
           placeholder="Enter your display name"
           placeholderTextColor={COLORS.textMuted}
-          value={formData.fullName || psychic?.name || ''}
+          value={formData.fullName}
           onChangeText={(text) => setFormData({...formData, fullName: text})}
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Email Address <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.inputHint}>We'll use this to contact you and for your advisor login</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your email address"
+          placeholderTextColor={COLORS.textMuted}
+          value={formData.email}
+          onChangeText={(text) => setFormData({...formData, email: text.toLowerCase()})}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Phone Number <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.inputHint}>We'll use this to contact you for urgent updates & verification</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Enter your phone number (e.g. +91 98765 43210)"
+          placeholderTextColor={COLORS.textMuted}
+          value={formData.phone}
+          onChangeText={(text) => setFormData({...formData, phone: text})}
+          keyboardType="phone-pad"
         />
       </View>
 
@@ -594,52 +740,58 @@ export default function ApplicationScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Email and Password inputs - show when user is not logged in */}
-      {!psychic && (
-        <>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email Address <Text style={styles.required}>*</Text></Text>
-            <Text style={styles.inputHint}>We'll use this to contact you and for your advisor login</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter your email address"
-              placeholderTextColor={COLORS.textMuted}
-              value={formData.email}
-              onChangeText={(text) => setFormData({...formData, email: text.toLowerCase()})}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Create Password <Text style={styles.required}>*</Text></Text>
+        <Text style={styles.inputHint}>8+ chars, 1 uppercase, 1 number, 1 special character</Text>
+        <View style={{ position: 'relative', justifyContent: 'center' }}>
+          <TextInput
+            style={[styles.input, { paddingRight: 45 }]}
+            placeholder="Create your advisor password"
+            placeholderTextColor={COLORS.textMuted}
+            secureTextEntry={!showPassword}
+            value={formData.password}
+            onChangeText={(text) => setFormData({...formData, password: text})}
+            autoCapitalize="none"
+          />
+          <TouchableOpacity
+            style={{ position: 'absolute', right: 14, top: 14, padding: 4 }}
+            onPress={() => setShowPassword(prev => !prev)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={showPassword ? 'eye-off' : 'eye'}
+              size={20}
+              color={COLORS.textMuted}
             />
-          </View>
+          </TouchableOpacity>
+        </View>
+      </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Create Password <Text style={styles.required}>*</Text></Text>
-            <Text style={styles.inputHint}>8+ chars, 1 uppercase, 1 number, 1 special character</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Create your advisor password"
-              placeholderTextColor={COLORS.textMuted}
-              secureTextEntry
-              value={formData.password}
-              onChangeText={(text) => setFormData({...formData, password: text})}
-              autoCapitalize="none"
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Confirm Password <Text style={styles.required}>*</Text></Text>
+        <View style={{ position: 'relative', justifyContent: 'center' }}>
+          <TextInput
+            style={[styles.input, { paddingRight: 45 }]}
+            placeholder="Re-enter your password"
+            placeholderTextColor={COLORS.textMuted}
+            secureTextEntry={!showConfirmPassword}
+            value={formData.confirmPassword}
+            onChangeText={(text) => setFormData({...formData, confirmPassword: text})}
+            autoCapitalize="none"
+          />
+          <TouchableOpacity
+            style={{ position: 'absolute', right: 14, top: 14, padding: 4 }}
+            onPress={() => setShowConfirmPassword(prev => !prev)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={showConfirmPassword ? 'eye-off' : 'eye'}
+              size={20}
+              color={COLORS.textMuted}
             />
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Confirm Password <Text style={styles.required}>*</Text></Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Re-enter your password"
-              placeholderTextColor={COLORS.textMuted}
-              secureTextEntry
-              value={formData.confirmPassword}
-              onChangeText={(text) => setFormData({...formData, confirmPassword: text})}
-              autoCapitalize="none"
-            />
-          </View>
-        </>
-      )}
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 
@@ -888,6 +1040,29 @@ export default function ApplicationScreen() {
       <Text style={styles.stepTitle}>Record Your Intro Video</Text>
       <Text style={styles.stepSubtitle}>Make a great first impression on potential clients!</Text>
 
+      {introVideoRecorded && (
+        <View style={{
+          backgroundColor: '#10B98115',
+          borderWidth: 1,
+          borderColor: '#10B981',
+          borderRadius: 14,
+          padding: SPACING.md,
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginBottom: SPACING.md,
+        }}>
+          <Ionicons name="checkmark-circle" size={28} color={COLORS.success} style={{ marginRight: 12 }} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: COLORS.textPrimary, fontWeight: '700', fontSize: 15 }}>
+              Intro Video Recorded ✅
+            </Text>
+            <Text style={{ color: COLORS.textSecondary, fontSize: 13, marginTop: 2 }}>
+              Your intro video has been saved. You can continue or re-record it below.
+            </Text>
+          </View>
+        </View>
+      )}
+
       <View style={styles.introVideoCard}>
         <View style={styles.introVideoIcon}>
           <Ionicons name="videocam" size={48} color={COLORS.primary} />
@@ -927,6 +1102,51 @@ export default function ApplicationScreen() {
           <Ionicons name="time-outline" size={16} color={COLORS.warning} />
           <Text style={styles.durationText}>Max 60 seconds</Text>
         </View>
+
+        {introVideoRecorded && (
+          <TouchableOpacity
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: `${COLORS.primary}20`,
+              borderWidth: 1,
+              borderColor: COLORS.primary,
+              borderRadius: 10,
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              marginTop: SPACING.md,
+              gap: 8,
+            }}
+            onPress={async () => {
+              const applicationData = {
+                full_name: formData.fullName,
+                email: formData.email,
+                phone: formData.phone,
+                country: formData.country,
+                profile_picture: formData.profilePicture,
+                password: formData.password,
+                confirmPassword: formData.confirmPassword,
+                years_experience: formData.yearsExperience,
+                specialties: formData.specialties,
+                love_services: formData.loveServices,
+                bio: formData.bio,
+                background: formData.background,
+                tools_used: formData.toolsUsed,
+                bank_name: formData.bankName,
+                account_number: formData.accountNumber,
+                routing_number: formData.routingNumber,
+              };
+              await AsyncStorage.setItem('application_data', JSON.stringify(applicationData));
+              router.push('/application/intro-video');
+            }}
+          >
+            <Ionicons name="videocam" size={18} color={COLORS.primary} />
+            <Text style={{ color: COLORS.primary, fontWeight: '700', fontSize: 14 }}>
+              Re-record Intro Video
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <Text style={styles.skipNote}>
@@ -1299,68 +1519,268 @@ export default function ApplicationScreen() {
     </View>
   );
 
-  // Step 7: Video Interview (previously Step 6)
+  // Step 7: Application Review & Confirm
   const renderStep7 = () => (
     <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Video Interview</Text>
-      <Text style={styles.stepSubtitle}>Answer a sample client question (5 min max)</Text>
+      <Text style={styles.stepTitle}>Review Your Application</Text>
+      <Text style={styles.stepSubtitle}>
+        Please review your details carefully before submitting. Tap "Edit" on any section if you want to make changes.
+      </Text>
 
-      {/* Sample Question Card */}
-      <View style={styles.questionCard}>
-        <View style={styles.questionHeader}>
-          <View style={styles.clientAvatar}>
-            <Text style={styles.clientInitial}>N</Text>
+      {/* 1. Personal Information */}
+      <View style={styles.reviewCard}>
+        <View style={styles.reviewCardHeader}>
+          <View style={styles.reviewCardHeaderLeft}>
+            <Ionicons name="person" size={20} color={COLORS.primary} />
+            <Text style={styles.reviewCardTitle}>Personal Information</Text>
           </View>
-          <View style={styles.clientInfo}>
-            <Text style={styles.clientName}>Sample Client Question</Text>
-            <Text style={styles.clientDate}>Practice Reading</Text>
+          <TouchableOpacity
+            style={styles.reviewEditBtn}
+            onPress={() => setCurrentStep(1)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.reviewEditText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.reviewAvatarRow}>
+          {formData.profilePicture ? (
+            <Image source={{ uri: formData.profilePicture }} style={styles.reviewAvatar} />
+          ) : (
+            <View style={[styles.reviewAvatar, styles.reviewAvatarPlaceholder]}>
+              <Ionicons name="person" size={32} color={COLORS.textMuted} />
+            </View>
+          )}
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={styles.reviewProfileName}>{formData.fullName || 'Not specified'}</Text>
+            <Text style={styles.reviewProfileSub}>{formData.country || 'Not specified'}</Text>
           </View>
         </View>
-        <View style={styles.questionBody}>
-          <Text style={styles.questionText}>
-            "Hello, my name is Navneet Kaur. My date of birth is February 22, 1999. Can you tell me about my married life? And also tell me about my career."
+
+        <View style={styles.reviewDivider} />
+
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Email</Text>
+          <Text style={styles.reviewFieldValue}>{formData.email || 'Not provided'}</Text>
+        </View>
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Phone</Text>
+          <Text style={styles.reviewFieldValue}>{formData.phone || 'Not provided'}</Text>
+        </View>
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Password</Text>
+          <Text style={styles.reviewFieldValue}>••••••••</Text>
+        </View>
+      </View>
+
+      {/* 2. Experience & Specialties */}
+      <View style={styles.reviewCard}>
+        <View style={styles.reviewCardHeader}>
+          <View style={styles.reviewCardHeaderLeft}>
+            <Ionicons name="briefcase" size={20} color={COLORS.primary} />
+            <Text style={styles.reviewCardTitle}>Experience & Specialties</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reviewEditBtn}
+            onPress={() => setCurrentStep(2)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.reviewEditText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Years Experience</Text>
+          <Text style={styles.reviewFieldValue}>
+            {formData.yearsExperience ? `${formData.yearsExperience} Years` : 'Not specified'}
+          </Text>
+        </View>
+
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.reviewFieldLabel}>Specialties</Text>
+          <View style={styles.reviewChipsWrap}>
+            {formData.specialties.length > 0 ? (
+              formData.specialties.map((spec, i) => (
+                <View key={i} style={styles.reviewChip}>
+                  <Text style={styles.reviewChipText}>{spec}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.reviewFieldEmpty}>None selected</Text>
+            )}
+          </View>
+        </View>
+
+        {formData.loveServices.length > 0 && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={styles.reviewFieldLabel}>Love & Relationship Services</Text>
+            <View style={styles.reviewChipsWrap}>
+              {formData.loveServices.map((svc, i) => (
+                <View key={i} style={[styles.reviewChip, { backgroundColor: '#EC489920', borderColor: '#EC489950' }]}>
+                  <Text style={[styles.reviewChipText, { color: '#F472B6' }]}>{svc}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.reviewFieldLabel}>Bio</Text>
+          <Text style={styles.reviewBioText} numberOfLines={4}>
+            {formData.bio || 'Not provided'}
           </Text>
         </View>
       </View>
 
-      <View style={styles.videoRequirements}>
-        <Text style={styles.requirementsTitle}>Video Requirements:</Text>
-        
-        <View style={styles.requirementItem}>
-          <Ionicons name="time" size={20} color={COLORS.primary} />
-          <Text style={styles.requirementText}>Maximum 5 minutes length</Text>
+      {/* 3. Background & Tools */}
+      <View style={styles.reviewCard}>
+        <View style={styles.reviewCardHeader}>
+          <View style={styles.reviewCardHeaderLeft}>
+            <Ionicons name="school" size={20} color={COLORS.primary} />
+            <Text style={styles.reviewCardTitle}>Background & Tools</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reviewEditBtn}
+            onPress={() => setCurrentStep(3)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.reviewEditText}>Edit</Text>
+          </TouchableOpacity>
         </View>
-        
-        <View style={styles.requirementItem}>
-          <Ionicons name="videocam" size={20} color={COLORS.primary} />
-          <Text style={styles.requirementText}>Record directly in the app (no uploads)</Text>
+
+        <View>
+          <Text style={styles.reviewFieldLabel}>Tools & Gifts</Text>
+          <View style={styles.reviewChipsWrap}>
+            {formData.toolsUsed.length > 0 ? (
+              formData.toolsUsed.map((tool, i) => (
+                <View key={i} style={styles.reviewChip}>
+                  <Text style={styles.reviewChipText}>{tool}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.reviewFieldEmpty}>None selected</Text>
+            )}
+          </View>
         </View>
-        
-        <View style={styles.requirementItem}>
-          <Ionicons name="construct" size={20} color={COLORS.primary} />
-          <Text style={styles.requirementText}>You can use your tools (cards, crystals, etc.)</Text>
-        </View>
-        
-        <View style={styles.requirementItem}>
-          <Ionicons name="sunny" size={20} color={COLORS.primary} />
-          <Text style={styles.requirementText}>Good lighting facing you</Text>
-        </View>
-        
-        <View style={styles.requirementItem}>
-          <Ionicons name="volume-mute" size={20} color={COLORS.primary} />
-          <Text style={styles.requirementText}>Quiet environment</Text>
+
+        <View style={{ marginTop: 8 }}>
+          <Text style={styles.reviewFieldLabel}>Philosophy & Approach</Text>
+          <Text style={styles.reviewBioText} numberOfLines={4}>
+            {formData.background || 'Not provided'}
+          </Text>
         </View>
       </View>
 
-      <View style={styles.tipBox}>
-        <Ionicons name="bulb" size={24} color={COLORS.gold} />
-        <View style={styles.tipContent}>
-          <Text style={styles.tipTitle}>Pro Tip</Text>
-          <Text style={styles.tipText}>
-            Show your authentic reading style! Use your tarot cards, crystals, or any tools you normally use. 
-            Speak naturally and connect with the question as if it's a real client.
+      {/* 4. Intro Video */}
+      <View style={styles.reviewCard}>
+        <View style={styles.reviewCardHeader}>
+          <View style={styles.reviewCardHeaderLeft}>
+            <Ionicons name="play-circle" size={20} color={COLORS.primary} />
+            <Text style={styles.reviewCardTitle}>Intro Video</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reviewEditBtn}
+            onPress={() => setCurrentStep(4)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.reviewEditText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.reviewStatusRow}>
+          <Ionicons
+            name={introVideoRecorded ? 'checkmark-circle' : 'alert-circle'}
+            size={22}
+            color={introVideoRecorded ? COLORS.success : COLORS.warning}
+          />
+          <Text style={[styles.reviewStatusText, { color: introVideoRecorded ? COLORS.success : COLORS.warning }]}>
+            {introVideoRecorded ? 'Intro Video Recorded & Ready' : 'Pending Recording'}
           </Text>
         </View>
+      </View>
+
+      {/* 5. Tax Documents */}
+      <View style={styles.reviewCard}>
+        <View style={styles.reviewCardHeader}>
+          <View style={styles.reviewCardHeaderLeft}>
+            <Ionicons name="document-text" size={20} color={COLORS.primary} />
+            <Text style={styles.reviewCardTitle}>Tax Information</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reviewEditBtn}
+            onPress={() => setCurrentStep(5)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.reviewEditText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Form Type</Text>
+          <Text style={styles.reviewFieldValue}>
+            {formData.country === 'United States' ? 'Form W-9 (US)' : 'Form W-8BEN (International)'}
+          </Text>
+        </View>
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Legal Name</Text>
+          <Text style={styles.reviewFieldValue}>
+            {(formData.country === 'United States' ? formData.w9Name : formData.w8Name) || formData.fullName || 'Certified'}
+          </Text>
+        </View>
+        <View style={styles.reviewStatusRow}>
+          <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
+          <Text style={[styles.reviewStatusText, { color: COLORS.success }]}>
+            Digitally Certified & Signed
+          </Text>
+        </View>
+      </View>
+
+      {/* 6. Payment & Payout */}
+      <View style={styles.reviewCard}>
+        <View style={styles.reviewCardHeader}>
+          <View style={styles.reviewCardHeaderLeft}>
+            <Ionicons name="wallet" size={20} color={COLORS.primary} />
+            <Text style={styles.reviewCardTitle}>Direct Deposit & Payout</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.reviewEditBtn}
+            onPress={() => setCurrentStep(6)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.reviewEditText}>Edit</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Bank Name</Text>
+          <Text style={styles.reviewFieldValue}>{formData.bankName || 'Direct Deposit / Stripe'}</Text>
+        </View>
+        <View style={styles.reviewFieldRow}>
+          <Text style={styles.reviewFieldLabel}>Account Number</Text>
+          <Text style={styles.reviewFieldValue}>
+            {formData.accountNumber ? `••••${formData.accountNumber.slice(-4)}` : 'Set up post-approval'}
+          </Text>
+        </View>
+        {formData.routingNumber ? (
+          <View style={styles.reviewFieldRow}>
+            <Text style={styles.reviewFieldLabel}>Routing / IFSC</Text>
+            <Text style={styles.reviewFieldValue}>{formData.routingNumber}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Submission notice */}
+      <View style={styles.reviewNotice}>
+        <Ionicons name="shield-checkmark" size={20} color={COLORS.primary} />
+        <Text style={styles.reviewNoticeText}>
+          By tapping "Submit Application", your details will be securely sent to our team for review. You will receive an update within 24-48 hours.
+        </Text>
       </View>
     </View>
   );
@@ -1572,7 +1992,7 @@ export default function ApplicationScreen() {
           <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Become an Advisor</Text>
-        <Text style={styles.stepCount}>{currentStep}/6</Text>
+        <Text style={styles.stepCount}>{currentStep}/{STEPS.length}</Text>
       </View>
 
       {/* Step Indicator */}
@@ -1601,15 +2021,50 @@ export default function ApplicationScreen() {
 
       {/* Footer */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + SPACING.md }]}>
-        <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
+        {currentStep > 1 && (
+          <TouchableOpacity
+            style={styles.backFooterButton}
+            onPress={handleBack}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={20} color={COLORS.textSecondary} />
+            <Text style={styles.backFooterText}>Back</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity
+          style={[styles.nextButton, currentStep > 1 && { flex: 1, marginLeft: 12 }]}
+          onPress={handleNext}
+          disabled={isSubmitting}
+          activeOpacity={0.8}
+        >
           <LinearGradient
             colors={[COLORS.primary, COLORS.primaryDark]}
             style={styles.nextGradient}
           >
-            <Text style={styles.nextText}>
-              {currentStep === 4 ? 'Record Intro Video' : currentStep === 7 ? 'Record Interview' : 'Continue'}
-            </Text>
-            <Ionicons name={currentStep === 4 || currentStep === 7 ? 'videocam' : 'arrow-forward'} size={20} color="#FFF" />
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFF" size="small" />
+            ) : (
+              <>
+                <Text style={styles.nextText}>
+                  {currentStep === 4 && !introVideoRecorded
+                    ? 'Record Intro Video'
+                    : currentStep === 7
+                    ? 'Submit Application 🚀'
+                    : 'Continue'}
+                </Text>
+                <Ionicons
+                  name={
+                    currentStep === 4 && !introVideoRecorded
+                      ? 'videocam'
+                      : currentStep === 7
+                      ? 'checkmark-circle'
+                      : 'arrow-forward'
+                  }
+                  size={20}
+                  color="#FFF"
+                />
+              </>
+            )}
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -2005,10 +2460,30 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
   },
+  backFooterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+    borderRadius: 12,
+    backgroundColor: COLORS.backgroundCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    height: 56,
+    gap: 6,
+  },
+  backFooterText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
   nextButton: {
+    flex: 1,
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -2408,5 +2883,156 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Review screen styles
+  reviewCard: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: 16,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  reviewCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.sm,
+  },
+  reviewCardHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  reviewCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  reviewEditBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: `${COLORS.primary}20`,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}40`,
+    gap: 4,
+  },
+  reviewEditText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  reviewAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: SPACING.xs,
+  },
+  reviewAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+  },
+  reviewAvatarPlaceholder: {
+    backgroundColor: COLORS.backgroundElevated,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reviewProfileName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  reviewProfileSub: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  reviewDivider: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginVertical: SPACING.sm,
+  },
+  reviewFieldRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  reviewFieldLabel: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+  },
+  reviewFieldValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    maxWidth: '65%',
+    textAlign: 'right',
+  },
+  reviewFieldEmpty: {
+    fontSize: 13,
+    color: COLORS.textMuted,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  reviewChipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  reviewChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: `${COLORS.primary}15`,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}30`,
+  },
+  reviewChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: COLORS.textPrimary,
+  },
+  reviewBioText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  reviewStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+    paddingTop: 6,
+  },
+  reviewStatusText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  reviewNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: `${COLORS.primary}12`,
+    borderRadius: 12,
+    padding: SPACING.md,
+    gap: 12,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.lg,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}25`,
+  },
+  reviewNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
   },
 });

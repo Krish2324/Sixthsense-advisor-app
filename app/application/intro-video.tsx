@@ -15,6 +15,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
 const MAX_DURATION = 60; // 1 minute max
 
 export default function IntroVideoScreen() {
@@ -146,7 +147,35 @@ export default function IntroVideoScreen() {
       const storedData = await AsyncStorage.getItem('application_data');
       const applicationData = storedData ? JSON.parse(storedData) : {};
       
-      applicationData.intro_video_url = recordedVideo || 'intro_video_recorded';
+      let finalVideoUrl = recordedVideo || 'intro_video_recorded';
+
+      // Upload recorded video to backend server if it's a local file URI
+      if (recordedVideo && recordedVideo.startsWith('file://')) {
+        try {
+          const form = new FormData();
+          form.append('file', {
+            uri: recordedVideo,
+            name: 'advisor_intro.mp4',
+            type: 'video/mp4',
+          } as any);
+
+          const uploadRes = await fetch(`${BACKEND_URL}/api/applications/upload-video`, {
+            method: 'POST',
+            body: form,
+          });
+
+          if (uploadRes.ok) {
+            const uploadJson = await uploadRes.json();
+            if (uploadJson.video_url) {
+              finalVideoUrl = `${BACKEND_URL}${uploadJson.video_url}`;
+            }
+          }
+        } catch (uploadErr) {
+          console.warn('Video upload to server warning:', uploadErr);
+        }
+      }
+
+      applicationData.intro_video_url = finalVideoUrl;
       applicationData.intro_video_duration = timeElapsed;
       applicationData.intro_video_completed = true;
       
@@ -218,7 +247,13 @@ export default function IntroVideoScreen() {
           <View style={[styles.headerOverlay, { paddingTop: insets.top + SPACING.md }]}>
             <TouchableOpacity
               style={styles.closeButton}
-              onPress={() => router.back()}
+              onPress={() => {
+                if (router.canGoBack()) {
+                  router.back();
+                } else {
+                  router.replace('/application');
+                }
+              }}
             >
               <Ionicons name="close" size={24} color="#FFF" />
             </TouchableOpacity>
@@ -267,7 +302,17 @@ export default function IntroVideoScreen() {
                   'You need to record an intro video to complete your application.',
                   [
                     { text: 'Stay', style: 'cancel' },
-                    { text: 'Leave', style: 'destructive', onPress: () => router.back() }
+                    {
+                      text: 'Leave',
+                      style: 'destructive',
+                      onPress: () => {
+                        if (router.canGoBack()) {
+                          router.back();
+                        } else {
+                          router.replace('/application');
+                        }
+                      }
+                    }
                   ]
                 );
               }}
