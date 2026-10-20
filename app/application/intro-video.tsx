@@ -15,7 +15,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.73:8000';
 const MAX_DURATION = 60; // 1 minute max
 
 export default function IntroVideoScreen() {

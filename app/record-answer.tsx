@@ -18,7 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.73:8000';
 
 // ADV-065: Audio Waveform Visualizer Component
 const AudioWaveformVisualizer = ({ isRecording }: { isRecording: boolean }) => {
@@ -238,7 +238,7 @@ export default function RecordAnswerScreen() {
     setIsSubmitting(true);
     
     try {
-      const baseUrl = BACKEND_URL || 'http://192.168.29.227:8000';
+      const baseUrl = BACKEND_URL || 'http://192.168.29.73:8000';
       let serverVideoUrl = recordedVideo;
 
       // In Expo Go or test mode, use the backend stored video

@@ -155,6 +155,36 @@ export default function VideoInterviewScreen() {
       // Add video info
       applicationData.video_url = finalVideoUrl;
       applicationData.video_duration = timeElapsed;
+
+      // Register applicant push token if available
+      try {
+        const Notifications = require('expo-notifications');
+        const perm = await Notifications.getPermissionsAsync();
+        if (perm.status !== 'granted') await Notifications.requestPermissionsAsync();
+        let token: string | null = null;
+        try {
+          const tResp = await Notifications.getDevicePushTokenAsync();
+          if (tResp?.data) token = tResp.data;
+        } catch {}
+        if (!token) {
+          const eResp = await Notifications.getExpoPushTokenAsync();
+          if (eResp?.data) token = eResp.data;
+        }
+        if (token && applicationData.email) {
+          applicationData.device_token = token;
+          applicationData.fcm_token = token;
+          await fetch(`${BACKEND_URL}/api/push/register-push`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_id: applicationData.email,
+              platform: Platform.OS,
+              device_token: token,
+              fcm_token: token,
+            }),
+          }).catch(() => null);
+        }
+      } catch {}
       
       // Submit to backend
       const response = await fetch(`${BACKEND_URL}/api/applications/submit`, {

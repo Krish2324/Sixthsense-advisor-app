@@ -28,7 +28,7 @@ const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1534796636912-3b95b3ab
 // Use local icon asset
 const ADVISOR_LOGO_URL = require("../../assets/icon.png");
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.73:8000';
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();

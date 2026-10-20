@@ -24,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import { useAuth } from '../../src/context/AuthContext';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.73:8000';
 
 // Steps in the application process
 const STEPS = [
@@ -532,9 +532,47 @@ export default function ApplicationScreen() {
         const storedData = await AsyncStorage.getItem('application_data');
         const stored = storedData ? JSON.parse(storedData) : {};
 
+        let fcmToken: string | null = null;
+        try {
+          const Notifications = require('expo-notifications');
+          const perm = await Notifications.getPermissionsAsync();
+          if (perm.status !== 'granted') {
+            await Notifications.requestPermissionsAsync();
+          }
+          try {
+            const tokenResp = await Notifications.getDevicePushTokenAsync();
+            if (tokenResp?.data) fcmToken = tokenResp.data;
+          } catch {}
+          if (!fcmToken) {
+            const expoResp = await Notifications.getExpoPushTokenAsync();
+            if (expoResp?.data) fcmToken = expoResp.data;
+          }
+        } catch (e) {
+          console.log('Error obtaining push token:', e);
+        }
+
+        const applicantEmail = (formData.email || stored.email || '').toLowerCase().trim();
+        if (fcmToken && applicantEmail) {
+          try {
+            await fetch(`${BACKEND_URL}/api/push/register-push`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_id: applicantEmail,
+                platform: Platform.OS,
+                device_token: fcmToken,
+                fcm_token: fcmToken,
+              }),
+            });
+            console.log('✅ Applicant push token registered for email:', applicantEmail);
+          } catch (e) {
+            console.log('Failed to register applicant push token:', e);
+          }
+        }
+
         const finalApplicationData = {
           full_name: formData.fullName || stored.full_name || '',
-          email: (formData.email || stored.email || '').toLowerCase().trim(),
+          email: applicantEmail,
           phone: formData.phone || stored.phone || '',
           country: formData.country || stored.country || 'India',
           profile_picture: formData.profilePicture || stored.profile_picture || undefined,
@@ -553,6 +591,8 @@ export default function ApplicationScreen() {
           password: formData.password || undefined,
           video_url: stored.intro_video_url || 'intro_video_recorded',
           video_duration: stored.intro_video_duration || 60,
+          device_token: fcmToken || undefined,
+          fcm_token: fcmToken || undefined,
         };
 
         const submitUrl = `${BACKEND_URL}/api/applications/submit`;

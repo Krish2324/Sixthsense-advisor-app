@@ -20,7 +20,7 @@ import { Audio } from 'expo-av';
 import { Camera } from 'expo-camera';
 
 const { width, height } = Dimensions.get('window');
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.73:8000';
 
 export default function IncomingRequestScreen() {
   const router = useRouter();

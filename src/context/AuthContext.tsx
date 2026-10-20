@@ -37,7 +37,7 @@ if (Platform.OS !== 'web') {
   }
 }
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.73:8000';
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 mins inactivity auto-logout (ADV-014)
 
 // Register push token with backend
