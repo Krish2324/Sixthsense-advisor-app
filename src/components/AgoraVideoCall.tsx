@@ -51,6 +51,7 @@ export default function AgoraVideoCall({
   const [isRemoteMuted, setIsRemoteMuted] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(!isVideo);
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -247,6 +248,10 @@ export default function AgoraVideoCall({
     webViewRef.current?.injectJavaScript(`toggleCamera(${newCameraOff}); true;`);
   };
 
+  const flipCamera = () => {
+    webViewRef.current?.injectJavaScript(`if (window.switchCamera) window.switchCamera(); true;`);
+  };
+
   const endCall = () => {
     webViewRef.current?.injectJavaScript(`leaveChannel(); true;`);
     onCallEnd();
@@ -260,6 +265,11 @@ export default function AgoraVideoCall({
       }
 
       switch (data.type) {
+        case 'camera-switched':
+          if (data.facingMode) {
+            setIsFrontCamera(data.facingMode === 'user');
+          }
+          break;
         case 'ready':
           setIsLoading(false);
           break;
@@ -372,7 +382,7 @@ export default function AgoraVideoCall({
       z-index: 10;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5);
     }
-    #local-video video { width: 100%; height: 100%; object-fit: cover; }
+    #local-video video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); transition: transform 0.2s ease; }
     #remote-video video { width: 100%; height: 100%; object-fit: cover; }
     .placeholder {
       width: 100%;
@@ -625,6 +635,21 @@ export default function AgoraVideoCall({
     let client = null;
     let localAudioTrack = null;
     let localVideoTrack = null;
+    let currentFacingMode = "user";
+    let isSwitchingCamera = false;
+
+    function applyMirror(facing) {
+      try {
+        const lv = document.getElementById("local-video");
+        if (lv) {
+          const v = lv.querySelector("video");
+          if (v) {
+            v.style.transform = (facing === "environment") ? "scaleX(1)" : "scaleX(-1)";
+          }
+        }
+      } catch (e) {}
+    }
+
     let isInitializing = false;
     let isJoined = false;
     let lastZeroVolSentTime = 0;
@@ -821,9 +846,15 @@ export default function AgoraVideoCall({
         if (IS_VIDEO) {
           try {
             localVideoTrack = await AgoraRTC.createCameraVideoTrack({
+              facingMode: currentFacingMode,
               encoderConfig: "480p_1",
             });
-            localVideoTrack.play(document.getElementById("local-video"));
+            const lv = document.getElementById("local-video");
+            if (lv) {
+              lv.innerHTML = "";
+              localVideoTrack.play(lv);
+              applyMirror(currentFacingMode);
+            }
             await client.publish([localVideoTrack]);
             console.log("Advisor camera track created, published and playing locally");
           } catch (camErr) {
@@ -884,6 +915,98 @@ export default function AgoraVideoCall({
         if (lv) lv.style.display = off ? "none" : "block";
       }
     }
+
+    // Flip / Switch Camera between Front and Back
+    window.switchCamera = async function() {
+      if (!IS_VIDEO || isSwitchingCamera) return;
+      isSwitchingCamera = true;
+      try {
+        const nextFacing = (currentFacingMode === "user") ? "environment" : "user";
+        console.log("switchCamera invoked, target facing:", nextFacing);
+
+        let switched = false;
+
+        // Method 1: Agora Web SDK 4.19+ native setDevice with facingMode object
+        if (localVideoTrack && typeof localVideoTrack.setDevice === "function") {
+          try {
+            await localVideoTrack.setDevice({ facingMode: nextFacing });
+            switched = true;
+            console.log("Switched camera via setDevice({ facingMode }):", nextFacing);
+          } catch (e1) {
+            console.warn("setDevice facingMode failed, will try deviceId:", e1);
+          }
+        }
+
+        // Method 2: Enumerate devices via AgoraRTC.getCameras()
+        if (!switched && localVideoTrack) {
+          try {
+            const cameras = await AgoraRTC.getCameras();
+            console.log("Available cameras:", JSON.stringify(cameras));
+            if (cameras && cameras.length > 1) {
+              const currentTrack = localVideoTrack.getMediaStreamTrack ? localVideoTrack.getMediaStreamTrack() : null;
+              const currentDevId = (currentTrack && currentTrack.getSettings) ? currentTrack.getSettings().deviceId : null;
+
+              let targetCam = cameras.find(c => {
+                const lbl = (c.label || "").toLowerCase();
+                if (nextFacing === "environment") {
+                  return lbl.includes("back") || lbl.includes("rear") || lbl.includes("environment") || lbl.includes("0");
+                } else {
+                  return lbl.includes("front") || lbl.includes("user") || lbl.includes("selfie") || lbl.includes("1");
+                }
+              });
+
+              if (!targetCam) {
+                targetCam = cameras.find(c => c.deviceId && c.deviceId !== currentDevId) || cameras[1];
+              }
+
+              if (targetCam && targetCam.deviceId) {
+                await localVideoTrack.setDevice(targetCam.deviceId);
+                switched = true;
+                console.log("Switched camera via deviceId:", targetCam.deviceId);
+              }
+            }
+          } catch (e2) {
+            console.warn("getCameras deviceId switch failed:", e2);
+          }
+        }
+
+        // Method 3: Cleanly recreate camera track with nextFacing
+        if (!switched && client) {
+          try {
+            console.log("Recreating camera track with facingMode:", nextFacing);
+            if (localVideoTrack) {
+              try { await client.unpublish([localVideoTrack]); } catch (uErr) {}
+              try { localVideoTrack.stop(); } catch (sErr) {}
+              try { localVideoTrack.close(); } catch (cErr) {}
+            }
+            localVideoTrack = await AgoraRTC.createCameraVideoTrack({
+              facingMode: nextFacing,
+              encoderConfig: "480p_1",
+            });
+            const lv = document.getElementById("local-video");
+            if (lv) {
+              lv.innerHTML = "";
+              localVideoTrack.play(lv);
+            }
+            await client.publish([localVideoTrack]);
+            switched = true;
+            console.log("Successfully recreated and published camera track:", nextFacing);
+          } catch (e3) {
+            console.error("Failed to recreate camera track:", e3);
+          }
+        }
+
+        if (switched) {
+          currentFacingMode = nextFacing;
+          applyMirror(currentFacingMode);
+          sendMessage("camera-switched", { facingMode: currentFacingMode });
+        }
+      } catch (err) {
+        console.error("switchCamera error:", err);
+      } finally {
+        isSwitchingCamera = false;
+      }
+    };
 
     // Leave channel safely
     async function leaveChannel() {
@@ -967,6 +1090,20 @@ export default function AgoraVideoCall({
           </View>
         )}
       </View>
+
+      {/* Top Right Floating Flip Camera Button (over local video preview) */}
+      {isVideo && !isCameraOff && (
+        <TouchableOpacity
+          style={styles.previewFlipBtn}
+          onPress={flipCamera}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="camera-reverse" size={15} color="#FFF" />
+          <Text style={styles.previewFlipText}>
+            {isFrontCamera ? 'Back Cam' : 'Front Cam'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Audio Call UI Overlay */}
       {!isVideo && (
@@ -1105,11 +1242,29 @@ export default function AgoraVideoCall({
           >
             <Ionicons
               name={isCameraOff ? 'videocam-off' : 'videocam'}
-              size={26}
+              size={24}
               color="#FFF"
             />
             <Text style={styles.whatsappControlLabel}>
               {isCameraOff ? 'Cam Off' : 'Camera'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Flip / Switch Camera (Front <-> Back for video calls) */}
+        {isVideo && !isCameraOff && (
+          <TouchableOpacity
+            style={styles.whatsappControlBtn}
+            onPress={flipCamera}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name="camera-reverse-outline"
+              size={24}
+              color="#FFF"
+            />
+            <Text style={styles.whatsappControlLabel}>
+              {isFrontCamera ? 'Back Cam' : 'Front Cam'}
             </Text>
           </TouchableOpacity>
         )}
@@ -1300,15 +1455,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 15,
   },
+  previewFlipBtn: {
+    position: 'absolute',
+    top: 92,
+    right: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    zIndex: 30,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+  },
+  previewFlipText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
   whatsappControlsCard: {
     position: 'absolute',
     bottom: 34,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(22, 27, 34, 0.88)',
+    left: 12,
+    right: 12,
+    backgroundColor: 'rgba(22, 27, 34, 0.92)',
     borderRadius: 36,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
@@ -1321,9 +1496,9 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   whatsappControlBtn: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(255, 255, 255, 0.14)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1342,9 +1517,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#EF4444',
   },
   whatsappEndCallBtn: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     backgroundColor: '#DC2626',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1355,7 +1530,7 @@ const styles = StyleSheet.create({
   },
   whatsappControlLabel: {
     color: 'rgba(255,255,255,0.9)',
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: '700',
     marginTop: 3,
   },

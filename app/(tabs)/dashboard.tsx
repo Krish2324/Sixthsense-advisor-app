@@ -18,7 +18,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import NotificationBanner from '../../src/components/NotificationBanner';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 
 export default function DashboardScreen() {
   const insets = useSafeAreaInsets();
@@ -96,8 +96,8 @@ export default function DashboardScreen() {
   const [dashboardStats, setDashboardStats] = useState({
     todayEarnings: 0,
     weeklyEarnings: 0,
-    averageRating: Number(psychic?.average_rating || (psychic as any)?.rating || 5.0),
-    totalReviews: Number(psychic?.total_reviews || (psychic as any)?.reviews || 0),
+    averageRating: 5.0,
+    totalReviews: 0,
     totalReadings: Number(psychic?.total_readings || 0),
     pendingQuestions: 0,
     activeSessions: 0,
@@ -122,8 +122,8 @@ export default function DashboardScreen() {
         setDashboardStats({
           todayEarnings: Number(data.today_earnings ?? 0),
           weeklyEarnings: Number(data.weekly_earnings ?? 0),
-          averageRating: Number(data.average_rating ?? psychic?.average_rating ?? 5.0),
-          totalReviews: Number(data.total_reviews ?? psychic?.total_reviews ?? 0),
+          averageRating: Number(data.average_rating ?? 5.0),
+          totalReviews: Number(data.total_reviews ?? 0),
           totalReadings: Number(data.total_readings ?? 0),
           pendingQuestions: Number(data.pending_questions ?? 0),
           activeSessions: Number(data.active_sessions ?? 0),

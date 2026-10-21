@@ -9,6 +9,8 @@ import {
   Platform,
   ActivityIndicator,
   Linking,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -61,23 +63,85 @@ export default function BankAccountScreen() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [accountStatus, setAccountStatus] = useState<StripeAccountStatus | null>(null);
 
+  // Direct Deposit Bank Details
+  const [directBank, setDirectBank] = useState<any>(null);
+  const [showEditModal, setShowEditModal] = useState<boolean>(false);
+  const [editForm, setEditForm] = useState({
+    account_holder_name: '',
+    bank_name: '',
+    account_number: '',
+    routing_number: '',
+    account_type: 'Checking',
+  });
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+
   useEffect(() => {
     fetchAccountStatus();
-  }, []);
+  }, [psychic?.id]);
 
   const fetchAccountStatus = async () => {
     if (!psychic?.id) return;
     
     try {
-      const response = await fetch(`${BACKEND_URL}/api/stripe-connect/account-status/${psychic.id}`);
-      if (response.ok) {
-        const data = await response.json();
+      const [stripeRes, bankRes] = await Promise.all([
+        fetch(`${BACKEND_URL}/api/stripe-connect/account-status/${psychic.id}`).catch(() => null),
+        fetch(`${BACKEND_URL}/api/payments/psychic-bank-details/${psychic.id}`).catch(() => null),
+      ]);
+
+      if (stripeRes && stripeRes.ok) {
+        const data = await stripeRes.json();
         setAccountStatus(data);
+      }
+
+      if (bankRes && bankRes.ok) {
+        const bData = await bankRes.json().catch(() => ({}));
+        if (bData.bank_details && bData.bank_details.account_number) {
+          setDirectBank(bData.bank_details);
+          setEditForm({
+            account_holder_name: bData.bank_details.account_holder_name || psychic.name || '',
+            bank_name: bData.bank_details.bank_name || 'Chase Bank, N.A.',
+            account_number: bData.bank_details.account_number || '',
+            routing_number: bData.bank_details.routing_number || '',
+            account_type: bData.bank_details.account_type || 'Checking',
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching account status:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveDirectBank = async () => {
+    if (!editForm.account_number.trim() || !editForm.routing_number.trim()) {
+      const msg = 'Please enter both Account Number and 9-digit Routing Number';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Incomplete Form', msg);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/payments/psychic-bank-details/${psychic?.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      });
+
+      if (response.ok) {
+        setDirectBank(editForm);
+        setShowEditModal(false);
+        const doneMsg = 'Bank account details updated successfully!';
+        Platform.OS === 'web' ? alert(doneMsg) : Alert.alert('Saved', doneMsg);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to save');
+      }
+    } catch (e: any) {
+      const msg = e?.message || 'Error saving bank details';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Error', msg);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -191,13 +255,13 @@ export default function BankAccountScreen() {
   };
 
   const getStatusBadge = () => {
-    if (!accountStatus?.connected) {
-      return { text: 'Not Connected', color: colors.error, icon: 'close-circle' };
+    if (directBank?.account_number || accountStatus?.bank_account) {
+      return { text: 'Bank Account Linked', color: colors.success, icon: 'checkmark-circle' };
     }
-    if (!accountStatus.payouts_enabled) {
+    if (accountStatus?.connected && !accountStatus?.payouts_enabled) {
       return { text: 'Pending Verification', color: colors.warning, icon: 'time' };
     }
-    return { text: 'Verified', color: colors.success, icon: 'checkmark-circle' };
+    return { text: 'Not Connected', color: colors.error, icon: 'close-circle' };
   };
 
   const status = getStatusBadge();
@@ -255,27 +319,37 @@ export default function BankAccountScreen() {
                     <Text style={[styles.editLink, { color: colors.primary }]}>Edit</Text>
                   </TouchableOpacity>
                 </View>
-              ) : accountStatus?.connected && !accountStatus?.payouts_enabled ? (
-                <View style={styles.pendingInfo}>
-                  <Ionicons name="information-circle" size={20} color={colors.warning} />
-                  <Text style={[styles.pendingText, { color: colors.textSecondary }]}>
-                    Stripe Identity Verification (KYC) is required before receiving payouts.
-                  </Text>
-                  {/* ADV-051: Direct Stripe Express Onboarding Webview Link */}
-                  <TouchableOpacity
-                    style={[styles.completeButton, { backgroundColor: '#635BFF', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10 }]}
-                    onPress={handleConnectBank}
-                    disabled={isConnecting}
-                  >
-                    <Ionicons name="shield-checkmark" size={18} color="#FFF" />
-                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>Complete Stripe KYC Verification</Text>
+              ) : directBank?.account_number ? (
+                <View style={styles.bankInfo}>
+                  <View style={[styles.bankIcon, { backgroundColor: colors.primary + '20' }]}>
+                    <Ionicons name="business" size={24} color={colors.primary} />
+                  </View>
+                  <View style={styles.bankDetails}>
+                    <Text style={[styles.bankName, { color: colors.textPrimary }]}>
+                      {directBank.bank_name || 'Chase Bank, N.A.'}
+                    </Text>
+                    <Text style={[styles.bankLast4, { color: colors.textSecondary }]}>
+                      Account: ••••{directBank.account_number.slice(-4)} ({directBank.account_type || 'Checking'})
+                    </Text>
+                    <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>
+                      Routing: {directBank.routing_number} • {directBank.account_holder_name}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowEditModal(true)}>
+                    <Text style={[styles.editLink, { color: colors.primary }]}>Edit</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
-                <View style={styles.notConnectedInfo}>
-                  <Text style={[styles.notConnectedText, { color: colors.textSecondary }]}>
-                    Connect your bank account to receive your earnings directly.
+                <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+                  <Text style={[styles.notConnectedText, { color: colors.textSecondary, marginBottom: 10 }]}>
+                    No bank account linked for payouts yet.
                   </Text>
+                  <TouchableOpacity
+                    style={{ backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
+                    onPress={() => setShowEditModal(true)}
+                  >
+                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 13 }}>+ Add Bank Account Details</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
@@ -380,6 +454,207 @@ export default function BankAccountScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* Edit Direct Deposit Bank Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.65)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 20,
+        }}>
+          <View style={{
+            backgroundColor: colors.backgroundCard,
+            borderRadius: 20,
+            padding: 22,
+            width: '100%',
+            maxWidth: 440,
+            borderWidth: 1,
+            borderColor: colors.border,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.35,
+            shadowRadius: 16,
+            elevation: 10,
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary + '20', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="business" size={18} color={colors.primary} />
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary }}>
+                  Direct Deposit Details
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowEditModal(false)}>
+                <Ionicons name="close-circle" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 380 }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Account Holder Name
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="e.g. Luna Starweaver"
+                placeholderTextColor={colors.textMuted}
+                value={editForm.account_holder_name}
+                onChangeText={(t) => setEditForm((prev) => ({ ...prev, account_holder_name: t }))}
+              />
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Bank Name
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="e.g. JPMorgan Chase Bank"
+                placeholderTextColor={colors.textMuted}
+                value={editForm.bank_name}
+                onChangeText={(t) => setEditForm((prev) => ({ ...prev, bank_name: t }))}
+              />
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Account Number
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="Enter account number"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="number-pad"
+                value={editForm.account_number}
+                onChangeText={(t) => setEditForm((prev) => ({ ...prev, account_number: t }))}
+              />
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Routing Number (ABA)
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="e.g. 021000021"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="number-pad"
+                maxLength={9}
+                value={editForm.routing_number}
+                onChangeText={(t) => setEditForm((prev) => ({ ...prev, routing_number: t }))}
+              />
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Account Type
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                {['Checking', 'Savings'].map((type) => {
+                  const isSelected = editForm.account_type === type;
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={{
+                        flex: 1,
+                        backgroundColor: isSelected ? colors.primary : colors.backgroundElevated,
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: isSelected ? colors.primary : colors.border,
+                      }}
+                      onPress={() => setEditForm((prev) => ({ ...prev, account_type: type }))}
+                    >
+                      <Text style={{
+                        color: isSelected ? '#FFF' : colors.textPrimary,
+                        fontWeight: '700',
+                        fontSize: 13,
+                      }}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.success,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={handleSaveDirectBank}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>Save Details</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={() => setShowEditModal(false)}
+              >
+                <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 14 }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

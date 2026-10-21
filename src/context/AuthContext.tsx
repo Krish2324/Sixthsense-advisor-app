@@ -37,7 +37,7 @@ if (Platform.OS !== 'web') {
   }
 }
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 const INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 mins inactivity auto-logout (ADV-014)
 
 // Register push token with backend
@@ -47,26 +47,72 @@ async function registerPushToken(userId: string, email?: string) {
     let fcmToken: string | null = null;
     if (Notifications) {
       try {
-        const perm = await Notifications.getPermissionsAsync();
-        if (perm.status !== 'granted') {
-          await Notifications.requestPermissionsAsync();
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
         }
-      } catch {}
+
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'Default',
+            importance: Notifications.AndroidImportance.MAX,
+            sound: 'default',
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#E8A0B8',
+          });
+          await Notifications.setNotificationChannelAsync('high_importance_channel', {
+            name: 'High Importance Notifications',
+            importance: Notifications.AndroidImportance.MAX,
+            sound: 'default',
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#E8A0B8',
+          });
+        }
+      } catch (permErr) {
+        console.warn('Notification permission error:', permErr);
+      }
+
+      // Try native FCM device token first (works on standalone builds)
       if (!isExpoGo && typeof Notifications.getDevicePushTokenAsync === 'function') {
         try {
           const tokenResp = await Notifications.getDevicePushTokenAsync();
-          if (tokenResp?.data) fcmToken = tokenResp.data;
-        } catch {}
+          if (tokenResp?.data && typeof tokenResp.data === 'string') {
+            fcmToken = tokenResp.data;
+            console.log('✅ Real Advisor FCM Native Device Token obtained:', fcmToken?.slice(0, 30));
+          }
+        } catch (deviceTokenErr) {
+          console.warn('⚠️ getDevicePushTokenAsync error:', deviceTokenErr);
+        }
       }
+
+      // Try Expo Push Token
       if (!fcmToken && typeof Notifications.getExpoPushTokenAsync === 'function') {
         try {
-          const expoResp = await Notifications.getExpoPushTokenAsync();
-          if (expoResp?.data) fcmToken = expoResp.data;
-        } catch {}
+          const projectId =
+            Constants.easConfig?.projectId ||
+            Constants.expoConfig?.extra?.eas?.projectId;
+          const expoResp = await Notifications.getExpoPushTokenAsync(
+            projectId ? { projectId } : undefined
+          );
+          if (expoResp?.data) {
+            fcmToken = expoResp.data;
+            console.log('✅ Advisor Expo Push Token obtained:', fcmToken);
+          }
+        } catch (expoErr) {
+          console.warn('⚠️ getExpoPushTokenAsync error:', expoErr);
+        }
       }
     }
+
     if (!fcmToken) {
-      fcmToken = `fcm_device_${Platform.OS}_${userId}`;
+      if (isExpoGo) {
+        fcmToken = `fcm_device_${Platform.OS}_${userId}`;
+      } else {
+        console.warn('⚠️ Could not obtain real push token on standalone build');
+        return;
+      }
     }
     await fetch(`${BACKEND_URL}/api/push/register-push`, {
       method: 'POST',

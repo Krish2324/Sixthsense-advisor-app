@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,6 +59,7 @@ export default function WithdrawScreen() {
     total: 0,
     totalTips: 0,
   });
+  const [platformFeePercent, setPlatformFeePercent] = useState<number>(0);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'bank' | 'paypal'>('bank');
   const [routingNumber, setRoutingNumber] = useState('');
@@ -65,19 +67,46 @@ export default function WithdrawScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Calculate PayPal fee and amount received
+  // Bank Details States
+  const [hasBankDetails, setHasBankDetails] = useState<boolean>(false);
+  const [bankDetails, setBankDetails] = useState({
+    account_holder_name: user?.name || '',
+    bank_name: '',
+    account_number: '',
+    routing_number: '',
+    account_type: 'Checking',
+  });
+  const [showBankModal, setShowBankModal] = useState<boolean>(false);
+  const [isSavingBank, setIsSavingBank] = useState<boolean>(false);
+
+  // Dynamic fee calculation
+  const calculateBankFee = (amount: number) => {
+    const fee = (amount * platformFeePercent) / 100;
+    return Math.round(fee * 100) / 100;
+  };
+
   const calculatePayPalFee = (amount: number) => {
     const fee = (amount * PAYPAL_FEE_PERCENT) + PAYPAL_FEE_FIXED;
-    return Math.round(fee * 100) / 100; // Round to 2 decimal places
+    return Math.round(fee * 100) / 100;
   };
 
   const getAmountReceived = () => {
     const amount = parseFloat(withdrawAmount) || 0;
     if (paymentMethod === 'bank') {
-      return amount;
+      const fee = calculateBankFee(amount);
+      return Math.max(0, amount - fee);
     } else {
       const fee = calculatePayPalFee(amount);
       return Math.max(0, amount - fee);
+    }
+  };
+
+  const getPlatformFee = () => {
+    const amount = parseFloat(withdrawAmount) || 0;
+    if (paymentMethod === 'bank') {
+      return calculateBankFee(amount);
+    } else {
+      return calculatePayPalFee(amount);
     }
   };
 
@@ -86,7 +115,7 @@ export default function WithdrawScreen() {
     return calculatePayPalFee(amount);
   };
 
-  // ADV-050: Restore unsaved form state on mount
+  // Restore unsaved form state on mount
   useEffect(() => {
     AsyncStorage.getItem('withdraw_form_draft').then(raw => {
       if (raw) {
@@ -104,7 +133,48 @@ export default function WithdrawScreen() {
 
   useEffect(() => {
     fetchEarnings();
-  }, []);
+    fetchPlatformFee();
+    fetchBankDetails();
+  }, [user?.id]);
+
+  const fetchPlatformFee = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/payments/platform-fee`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.fee_percent !== undefined) {
+          setPlatformFeePercent(Number(data.fee_percent) || 0);
+        }
+      }
+    } catch (e) {
+      console.log('Error fetching platform fee:', e);
+    }
+  };
+
+  const fetchBankDetails = async () => {
+    if (!user?.id) return;
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/payments/psychic-bank-details/${user.id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.bank_details && data.bank_details.account_number) {
+          setBankDetails({
+            account_holder_name: data.bank_details.account_holder_name || user?.name || '',
+            bank_name: data.bank_details.bank_name || 'Chase Bank, N.A.',
+            account_number: data.bank_details.account_number || '',
+            routing_number: data.bank_details.routing_number || '',
+            account_type: data.bank_details.account_type || 'Checking',
+          });
+          setRoutingNumber(data.bank_details.routing_number || '');
+          setHasBankDetails(true);
+        } else {
+          setHasBankDetails(false);
+        }
+      }
+    } catch (e) {
+      console.log('Error fetching bank details:', e);
+    }
+  };
 
   const fetchEarnings = async () => {
     try {
@@ -123,6 +193,45 @@ export default function WithdrawScreen() {
     }
   };
 
+  const handleSaveBankDetails = async () => {
+    if (!bankDetails.account_number.trim() || !bankDetails.routing_number.trim()) {
+      const msg = 'Please enter both Account Number and 9-digit Routing Number';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Incomplete Form', msg);
+      return;
+    }
+
+    if (!isValidABARouting(bankDetails.routing_number.trim())) {
+      const msg = 'Invalid 9-digit ABA Routing Number. Please double-check your routing number.';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Invalid Routing Number', msg);
+      return;
+    }
+
+    setIsSavingBank(true);
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/payments/psychic-bank-details/${user?.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bankDetails),
+      });
+
+      if (response.ok) {
+        setHasBankDetails(true);
+        setRoutingNumber(bankDetails.routing_number);
+        setShowBankModal(false);
+        const doneMsg = 'Bank details saved successfully! You can now proceed with your withdrawal.';
+        Platform.OS === 'web' ? alert(doneMsg) : Alert.alert('Bank Details Saved', doneMsg);
+      } else {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to save bank details');
+      }
+    } catch (e: any) {
+      const msg = e?.message || 'Error saving bank details';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Error', msg);
+    } finally {
+      setIsSavingBank(false);
+    }
+  };
+
   const handleWithdraw = async () => {
     const amount = parseFloat(withdrawAmount);
     
@@ -138,42 +247,52 @@ export default function WithdrawScreen() {
       return;
     }
 
-    // ADV-043: US ABA Routing Number Validation Check
-    if (routingNumber.trim().length > 0) {
-      if (!isValidABARouting(routingNumber.trim())) {
-        const msg = 'Invalid US ABA Routing Number checksum. Please double-check your 9-digit routing number.';
-        setRoutingError(msg);
-        Platform.OS === 'web' ? alert(msg) : Alert.alert('Routing Number Error', msg);
-        return;
-      }
+    if (paymentMethod === 'bank' && (!hasBankDetails || !bankDetails.account_number)) {
+      const msg = 'Please provide your bank details before submitting a withdrawal request.';
+      Platform.OS === 'web' ? alert(msg) : Alert.alert('Bank Details Required', msg);
+      setShowBankModal(true);
+      return;
     }
 
     setIsSubmitting(true);
 
     try {
+      const calculatedFee = getPlatformFee();
+      const amountToReceive = getAmountReceived();
+
       const response = await fetch(`${BACKEND_URL}/api/payments/payout-request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           psychic_id: user?.id,
           amount: amount,
-          method: 'bank_transfer',
+          fee: calculatedFee,
+          fee_percent: paymentMethod === 'bank' ? platformFeePercent : undefined,
+          net_amount: amountToReceive,
+          method: paymentMethod === 'paypal' ? 'paypal' : 'bank_transfer',
+          account_details: paymentMethod === 'bank' ? {
+            ...bankDetails,
+            method: 'bank_transfer',
+          } : {
+            method: 'paypal',
+          }
         }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        const msg = `Withdrawal request submitted!\n\nAmount: $${amount.toFixed(2)}\nEstimated arrival: ${data.estimated_arrival}`;
+        const netRcv = (data.net_amount || amountToReceive).toFixed(2);
+        const msg = `Withdrawal request submitted successfully!\n\nRequested: $${amount.toFixed(2)}\nPlatform Fee (${data.fee_percent || platformFeePercent}%): -$${(data.fee || calculatedFee).toFixed(2)}\nYou Will Receive: $${netRcv}\nStatus: Under Review (Pending)\nEstimated arrival: ${data.estimated_arrival}`;
         if (Platform.OS === 'web') {
           alert(msg);
         } else {
-          Alert.alert('Success', msg);
+          Alert.alert('Withdrawal Submitted', msg);
         }
         fetchEarnings();
         setWithdrawAmount('');
-        // ADV-050: Clear form draft on success
         AsyncStorage.removeItem('withdraw_form_draft').catch(() => null);
+        router.back();
       } else {
         throw new Error(data.detail || 'Failed to submit withdrawal');
       }
@@ -205,16 +324,16 @@ export default function WithdrawScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Balance Card */}
+        {/* Available Balance Card */}
         <LinearGradient
-          colors={[colors.success, '#1D8348']}
+          colors={[colors.primary, colors.primaryDark || colors.primary]}
+          style={styles.balanceCard}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.balanceCard}
         >
           <Text style={styles.balanceLabel}>Available for Withdrawal</Text>
           <Text style={styles.balanceAmount}>${earnings.available.toFixed(2)}</Text>
-          <View style={styles.balanceRow}>
+          <View style={styles.balanceBreakdown}>
             <View style={styles.balanceItem}>
               <Text style={styles.balanceItemLabel}>Pending</Text>
               <Text style={styles.balanceItemValue}>${earnings.pending.toFixed(2)}</Text>
@@ -227,21 +346,20 @@ export default function WithdrawScreen() {
           </View>
         </LinearGradient>
 
-        {/* Withdrawal Amount */}
+        {/* Withdrawal Amount Input */}
         <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Withdrawal Amount</Text>
-          <View style={[styles.amountInput, { borderColor: colors.border }]}>
-            <Text style={[styles.currencySymbol, { color: colors.textMuted }]}>{getCurrencySymbol(user?.country)}</Text>
+          <View style={[styles.amountInputContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
+            <Text style={[styles.currencyPrefix, { color: colors.textPrimary }]}>$</Text>
             <TextInput
-              style={[styles.input, { color: colors.textPrimary }]}
+              style={[styles.amountInput, { color: colors.textPrimary }]}
               placeholder="0.00"
               placeholderTextColor={colors.textMuted}
               value={withdrawAmount}
-              onChangeText={setWithdrawAmount}
+              onChangeText={updateWithdrawAmount}
               keyboardType="decimal-pad"
             />
           </View>
-          {/* ADV-047: Minimum Withdrawal Threshold Guardrail */}
           {withdrawAmount.length > 0 && parseFloat(withdrawAmount) < 40 ? (
             <Text style={[styles.minNote, { color: colors.error, fontWeight: '600' }]}>
               ⚠️ Amount must be at least $40.00 to request payout
@@ -260,7 +378,7 @@ export default function WithdrawScreen() {
                   { borderColor: colors.border },
                   withdrawAmount === amount.toString() && { borderColor: colors.primary, backgroundColor: colors.primary + '10' },
                 ]}
-                onPress={() => setWithdrawAmount(amount.toString())}
+                onPress={() => updateWithdrawAmount(amount.toString())}
               >
                 <Text style={[
                   styles.quickAmountText,
@@ -287,46 +405,163 @@ export default function WithdrawScreen() {
             <Ionicons name="business" size={24} color={colors.success} />
             <View style={styles.methodInfo}>
               <Text style={[styles.methodTitle, { color: colors.textPrimary }]}>Direct Bank Transfer</Text>
-              <Text style={[styles.methodDesc, { color: colors.textMuted }]}>Direct deposit via Stripe Connect (3-5 business days)</Text>
+              <Text style={[styles.methodDesc, { color: colors.textMuted }]}>Direct deposit to your linked bank account (3-5 business days)</Text>
               <View style={styles.feeTagContainer}>
-                <View style={[styles.feeTag, { backgroundColor: colors.success + '20' }]}>
-                  <Ionicons name="checkmark-circle" size={14} color={colors.success} />
-                  <Text style={[styles.feeTagText, { color: colors.success }]}>FREE - No fees!</Text>
-                </View>
+                {platformFeePercent === 0 ? (
+                  <View style={[styles.feeTag, { backgroundColor: colors.success + '20' }]}>
+                    <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+                    <Text style={[styles.feeTagText, { color: colors.success }]}>FREE - No fees!</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.feeTag, { backgroundColor: colors.primary + '20' }]}>
+                    <Ionicons name="pricetag" size={14} color={colors.primary} />
+                    <Text style={[styles.feeTagText, { color: colors.primary }]}>{platformFeePercent}% Platform Fee</Text>
+                  </View>
+                )}
               </View>
             </View>
             <Ionicons name="checkmark-circle" size={24} color={colors.success} />
           </View>
 
+          {/* Linked Bank Account Card or Add Button */}
+          {hasBankDetails && bankDetails.account_number ? (
+            <View style={{
+              backgroundColor: colors.backgroundElevated,
+              borderRadius: 12,
+              padding: 14,
+              marginTop: 12,
+              borderWidth: 1,
+              borderColor: colors.border,
+            }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 34, height: 34, borderRadius: 10, backgroundColor: colors.primary + '20', alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name="business" size={18} color={colors.primary} />
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }}>
+                      {bankDetails.bank_name || 'Chase Bank, N.A.'}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                      {bankDetails.account_holder_name || user?.name || 'Account Holder'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: colors.primary + '15',
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 6,
+                  }}
+                  onPress={() => setShowBankModal(true)}
+                >
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.primary }}>Edit Bank</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ gap: 4 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>Account Number:</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>
+                    •••• {bankDetails.account_number.slice(-4)}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>Routing Number (ABA):</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>
+                    {bankDetails.routing_number}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                  <Text style={{ fontSize: 12, color: colors.textMuted }}>Account Type:</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.success }}>
+                    {bankDetails.account_type || 'Checking'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={{
+                backgroundColor: colors.backgroundElevated,
+                borderRadius: 12,
+                padding: 14,
+                marginTop: 12,
+                borderWidth: 1.5,
+                borderColor: colors.warning,
+                borderStyle: 'dashed',
+                alignItems: 'center',
+              }}
+              onPress={() => setShowBankModal(true)}
+            >
+              <Ionicons name="card-outline" size={28} color={colors.warning} />
+              <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary, marginTop: 4 }}>
+                No Bank Account Linked
+              </Text>
+              <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: 'center', marginTop: 2, marginBottom: 8 }}>
+                Provide your bank details once to receive direct deposits.
+              </Text>
+              <View style={{ backgroundColor: colors.primary, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 }}>
+                <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 12 }}>+ Add Bank Account Details</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {/* Fee Info Box */}
-          <View style={[styles.feeInfoBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
-            <Ionicons name="information-circle" size={20} color={colors.textMuted} />
-            <Text style={[styles.feeInfoText, { color: colors.textMuted }]}>
-              Bank transfers and direct deposits are completely free with zero platform withdrawal fees.
+          <View style={[styles.feeInfoBox, { backgroundColor: colors.background, borderColor: colors.border, marginTop: 12 }]}>
+            <Ionicons name="information-circle" size={20} color={platformFeePercent > 0 ? colors.primary : colors.textMuted} />
+            <Text style={[styles.feeInfoText, { color: colors.textSecondary }]}>
+              {platformFeePercent === 0
+                ? 'Bank transfers and direct deposits are completely free with zero platform withdrawal fees.'
+                : `A standard platform operations fee of ${platformFeePercent}% is deducted upon payout processing.`}
             </Text>
           </View>
         </View>
 
         {/* Amount Summary */}
         {parseFloat(withdrawAmount) >= 40 && (
-          <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Summary</Text>
+          <View style={[styles.section, { backgroundColor: colors.backgroundCard, borderWidth: 1, borderColor: colors.primary + '30' }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Ionicons name="calculator-outline" size={20} color={colors.primary} />
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: 0 }]}>Fee & Payout Calculation</Text>
+            </View>
             
             <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Withdrawal Amount</Text>
+              <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Applied Withdrawal (Gross)</Text>
               <Text style={[styles.summaryValue, { color: colors.textPrimary }]}>${parseFloat(withdrawAmount).toFixed(2)}</Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>
+                Platform Operations Fee {platformFeePercent > 0 ? `(${platformFeePercent}%)` : '(Direct Deposit)'}
+              </Text>
+              <Text style={[styles.summaryValue, { color: platformFeePercent > 0 ? colors.warning : colors.success }]}>
+                {platformFeePercent > 0
+                  ? `-$${calculateBankFee(parseFloat(withdrawAmount)).toFixed(2)}`
+                  : '$0.00 (FREE)'}
+              </Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { color: colors.textMuted }]}>Remaining Balance After Payout</Text>
+              <Text style={[styles.summaryValue, { color: colors.textSecondary }]}>
+                ${Math.max(0, earnings.available - parseFloat(withdrawAmount)).toFixed(2)}
+              </Text>
             </View>
             
             <View style={[styles.summaryDivider, { backgroundColor: colors.border }]} />
             
             <View style={styles.summaryRow}>
-              <Text style={[styles.summaryLabelBold, { color: colors.textPrimary }]}>You'll Receive</Text>
-              <Text style={[styles.summaryValueBold, { color: colors.success }]}>${parseFloat(withdrawAmount).toFixed(2)}</Text>
+              <Text style={[styles.summaryLabelBold, { color: colors.textPrimary, fontSize: 16 }]}>Total You Will Receive</Text>
+              <Text style={[styles.summaryValueBold, { color: colors.success, fontSize: 20 }]}>
+                ${getAmountReceived().toFixed(2)}
+              </Text>
             </View>
           </View>
         )}
 
-        {/* ADV-045: Payout Status Tracking Timeline */}
+        {/* Payout Tracking Timeline */}
         <View style={[styles.section, { backgroundColor: colors.backgroundCard }]}>
           <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Payout Tracking Timeline</Text>
           
@@ -371,10 +606,10 @@ export default function WithdrawScreen() {
           style={[
             styles.submitButton,
             { backgroundColor: colors.success },
-            (!withdrawAmount || parseFloat(withdrawAmount) < 50) && { opacity: 0.5 },
+            (!withdrawAmount || parseFloat(withdrawAmount) < 40) && { opacity: 0.5 },
           ]}
           onPress={handleWithdraw}
-          disabled={isSubmitting || !withdrawAmount || parseFloat(withdrawAmount) < 50}
+          disabled={isSubmitting || !withdrawAmount || parseFloat(withdrawAmount) < 40}
         >
           {isSubmitting ? (
             <ActivityIndicator color="#FFF" />
@@ -388,6 +623,221 @@ export default function WithdrawScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Bank Account Details Modal */}
+      <Modal
+        visible={showBankModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBankModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.65)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 20,
+        }}>
+          <View style={{
+            backgroundColor: colors.backgroundCard,
+            borderRadius: 20,
+            padding: 22,
+            width: '100%',
+            maxWidth: 440,
+            borderWidth: 1,
+            borderColor: colors.border,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.35,
+            shadowRadius: 16,
+            elevation: 10,
+          }}>
+            {/* Modal Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primary + '20', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="business" size={18} color={colors.primary} />
+                </View>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: colors.textPrimary }}>
+                  Bank Account Details
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowBankModal(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close-circle" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: 16, lineHeight: 18 }}>
+              Please enter your direct deposit bank details. These will be securely saved so you don't need to re-enter them on future payouts.
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 380 }}>
+              {/* Account Holder Name */}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Account Holder Name
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="e.g. Luna Starweaver"
+                placeholderTextColor={colors.textMuted}
+                value={bankDetails.account_holder_name}
+                onChangeText={(t) => setBankDetails((prev) => ({ ...prev, account_holder_name: t }))}
+              />
+
+              {/* Bank Name */}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Bank Name
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="e.g. JPMorgan Chase Bank"
+                placeholderTextColor={colors.textMuted}
+                value={bankDetails.bank_name}
+                onChangeText={(t) => setBankDetails((prev) => ({ ...prev, bank_name: t }))}
+              />
+
+              {/* Account Number */}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Account Number
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="Enter account number"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="number-pad"
+                value={bankDetails.account_number}
+                onChangeText={(t) => setBankDetails((prev) => ({ ...prev, account_number: t }))}
+              />
+
+              {/* Routing Number (ABA) */}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Routing Number (9 Digits)
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: colors.backgroundElevated,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  color: colors.textPrimary,
+                  fontSize: 14,
+                  marginBottom: 12,
+                }}
+                placeholder="e.g. 021000021"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="number-pad"
+                maxLength={9}
+                value={bankDetails.routing_number}
+                onChangeText={(t) => {
+                  setBankDetails((prev) => ({ ...prev, routing_number: t }));
+                  setRoutingNumber(t);
+                }}
+              />
+
+              {/* Account Type */}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, textTransform: 'uppercase' }}>
+                Account Type
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                {['Checking', 'Savings'].map((type) => {
+                  const isSelected = bankDetails.account_type === type;
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={{
+                        flex: 1,
+                        backgroundColor: isSelected ? colors.primary : colors.backgroundElevated,
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: isSelected ? colors.primary : colors.border,
+                      }}
+                      onPress={() => setBankDetails((prev) => ({ ...prev, account_type: type }))}
+                    >
+                      <Text style={{
+                        color: isSelected ? '#FFF' : colors.textPrimary,
+                        fontWeight: '700',
+                        fontSize: 13,
+                      }}>
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </ScrollView>
+
+            {/* Save Buttons */}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  backgroundColor: colors.success,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={handleSaveBankDetails}
+                disabled={isSavingBank}
+              >
+                {isSavingBank ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>Save Bank Details</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+                onPress={() => setShowBankModal(false)}
+              >
+                <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 14 }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -438,7 +888,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
     marginBottom: 16,
   },
-  balanceRow: {
+  balanceBreakdown: {
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -471,7 +921,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: SPACING.md,
   },
-  amountInput: {
+  amountInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 2,
@@ -479,12 +929,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     height: 60,
   },
-  currencySymbol: {
+  currencyPrefix: {
     fontSize: 24,
     fontWeight: '600',
     marginRight: 8,
   },
-  input: {
+  amountInput: {
     flex: 1,
     fontSize: 28,
     fontWeight: '700',

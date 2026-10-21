@@ -22,9 +22,10 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import AgoraVideoCall from '../../src/components/AgoraVideoCall';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 const WS_URL = BACKEND_URL.replace('https://', 'wss://').replace('http://', 'ws://');
 
 interface Message {
@@ -270,6 +271,17 @@ export default function ActiveSessionChatScreen() {
             };
             setMessages(prev => {
               if (prev.some(m => m.id === newMessage.id)) return prev;
+              // Deduplicate if identical sender & text arrived within 15s (echo of optimistic send)
+              const dupIdx = prev.findIndex(m =>
+                m.sender === newMessage.sender &&
+                m.text === newMessage.text &&
+                Math.abs(new Date(m.timestamp).getTime() - new Date(newMessage.timestamp).getTime()) < 15000
+              );
+              if (dupIdx !== -1) {
+                const updated = [...prev];
+                updated[dupIdx] = { ...updated[dupIdx], id: newMessage.id };
+                return updated;
+              }
               return [...prev, newMessage];
             });
             setClientIsTyping(false);
@@ -372,15 +384,36 @@ export default function ActiveSessionChatScreen() {
                   const textContent = isImage ? (img || m.content || '') : (m.content === '[Photo]' ? '' : (m.content || ''));
                   if (!textContent && !img) continue;
 
-                  updated.push({
-                    id: m.id,
-                    text: textContent,
-                    sender: isFromPsy ? 'psychic' : 'client',
-                    timestamp: new Date(m.created_at || Date.now()),
-                    type: isImage ? 'image' : 'text',
-                    imageUrl: img,
-                  });
-                  changed = true;
+                  const senderRole = isFromPsy ? 'psychic' : 'client';
+                  const msgTime = new Date(m.created_at || Date.now()).getTime();
+
+                  // Deduplicate optimistic message (same sender & text/image within 15 seconds)
+                  const optIdx = updated.findIndex(p =>
+                    p.sender === senderRole &&
+                    (isImage ? (p.imageUrl === img || p.text === img) : (p.text === textContent)) &&
+                    Math.abs(new Date(p.timestamp).getTime() - msgTime) < 15000
+                  );
+
+                  if (optIdx !== -1) {
+                    updated[optIdx] = {
+                      ...updated[optIdx],
+                      id: m.id,
+                      timestamp: new Date(m.created_at || updated[optIdx].timestamp),
+                    };
+                    existingIds.add(m.id);
+                    changed = true;
+                  } else {
+                    updated.push({
+                      id: m.id,
+                      text: textContent,
+                      sender: senderRole,
+                      timestamp: new Date(m.created_at || Date.now()),
+                      type: isImage ? 'image' : 'text',
+                      imageUrl: img,
+                    });
+                    existingIds.add(m.id);
+                    changed = true;
+                  }
                 }
               }
               if (changed) scrollToBottom();
@@ -560,6 +593,91 @@ export default function ActiveSessionChatScreen() {
       });
     } catch (e) {
       console.error('Error sending message via HTTP:', e);
+    }
+  };
+
+  // Photo capture (camera) and library picker with real-time WebSocket and HTTP dispatch
+  const handlePickImage = async (fromCamera: boolean) => {
+    try {
+      let result;
+      if (fromCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Camera permission is required to capture photos.');
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.5,
+          base64: true,
+          cameraType: ImagePicker.CameraType.back,
+        });
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Photo library permission is required to share photos.');
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.5,
+          base64: true,
+        });
+      }
+
+      if (!result.canceled && result.assets[0]?.uri) {
+        const imageAsset = result.assets[0];
+        const msgId = `img-${Date.now()}`;
+        const base64Data = imageAsset.base64;
+        const fullDataUri = base64Data ? `data:image/jpeg;base64,${base64Data}` : imageAsset.uri;
+
+        const imgMsg: Message = {
+          id: msgId,
+          text: fullDataUri,
+          imageUrl: fullDataUri,
+          sender: 'psychic',
+          timestamp: new Date(),
+          type: 'image',
+        };
+        setMessages(prev => [...prev, imgMsg]);
+        scrollToBottom();
+
+        // Send via WebSocket to client in real-time
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            id: msgId,
+            type: 'message',
+            conversation_id: sessionId,
+            receiver_id: clientId,
+            content: '',
+            image_url: fullDataUri,
+            sender_type: 'psychic',
+          }));
+        } else {
+          try {
+            await fetch(`${BACKEND_URL}/api/messages/send`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: msgId,
+                conversation_id: sessionId,
+                sender_id: currentPsychic?.id,
+                receiver_id: clientId,
+                content: '',
+                image_url: fullDataUri,
+                sender_type: 'psychic',
+              }),
+            });
+          } catch (httpErr) {
+            console.warn('HTTP image save fallback notice:', httpErr);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error attaching photo:', err);
+      Alert.alert('Error', 'Failed to attach photo. Please try again.');
     }
   };
 
@@ -820,7 +938,18 @@ export default function ActiveSessionChatScreen() {
             onContentSizeChange={() => scrollToBottom(false)}
             keyboardShouldPersistTaps="handled"
           >
-            {messages.map(renderMessage)}
+            {messages
+              .filter((msg, idx, arr) => {
+                const firstWithId = arr.findIndex(m => m.id === msg.id);
+                if (firstWithId !== idx) return false;
+                const prevDup = arr.slice(0, idx).find(m =>
+                  m.sender === msg.sender &&
+                  m.text === msg.text &&
+                  Math.abs(new Date(m.timestamp).getTime() - new Date(msg.timestamp).getTime()) < 10000
+                );
+                return !prevDup;
+              })
+              .map(renderMessage)}
             
             {clientIsTyping && (
               <View style={styles.typingIndicator}>
@@ -943,6 +1072,24 @@ export default function ActiveSessionChatScreen() {
       {isSessionActive ? (
         (!isCallMode || showChatInCall) ? (
           <View style={[styles.inputContainer, { paddingBottom: insets.bottom + SPACING.sm, backgroundColor: colors.backgroundCard }]}>
+            {/* Camera Button (Instant Capture Front / Back) */}
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={() => handlePickImage(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="camera" size={24} color={colors.primary} />
+            </TouchableOpacity>
+
+            {/* Gallery Photo Button */}
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={() => handlePickImage(false)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="image" size={24} color={colors.textSecondary} />
+            </TouchableOpacity>
+
             <TextInput
               style={[styles.input, { backgroundColor: colors.backgroundElevated, color: colors.textPrimary }]}
               placeholder="Type your message..."
@@ -954,7 +1101,7 @@ export default function ActiveSessionChatScreen() {
               maxLength={500}
             />
             <TouchableOpacity
-              style={[styles.sendButton, { backgroundColor: colors.primary }]}
+              style={[styles.sendButton, { backgroundColor: colors.primary }, !inputText.trim() && { opacity: 0.5 }]}
               onPress={sendMessage}
               disabled={!inputText.trim()}
             >
@@ -1084,6 +1231,13 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  attachButton: {
+    width: 38,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 2,
   },
   input: {
     flex: 1,

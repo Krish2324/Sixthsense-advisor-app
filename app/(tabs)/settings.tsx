@@ -149,6 +149,33 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Payout & Banking Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Payouts & Banking</Text>
+          
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.backgroundCard }]} onPress={() => router.push('/bank-account')}>
+            <View style={[styles.menuIcon, { backgroundColor: colors.primary + '20' }]}>
+              <Ionicons name="business" size={22} color={colors.primary} />
+            </View>
+            <View style={styles.menuText}>
+              <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>Bank Account Details</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Direct deposit account for withdrawals</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.menuItem, { backgroundColor: colors.backgroundCard, marginTop: 8 }]} onPress={() => router.push('/withdraw')}>
+            <View style={[styles.menuIcon, { backgroundColor: colors.success + '20' }]}>
+              <Ionicons name="wallet" size={22} color={colors.success} />
+            </View>
+            <View style={styles.menuText}>
+              <Text style={[styles.menuTitle, { color: colors.textPrimary }]}>Withdraw Funds</Text>
+              <Text style={[styles.menuSubtitle, { color: colors.textSecondary }]}>Request earnings payout</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
         {/* Preferences Section */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.textMuted }]}>Preferences</Text>

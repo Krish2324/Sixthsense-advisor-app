@@ -2,7 +2,7 @@
   "expo": {
     "name": "Sixth Sense Advisors",
     "slug": "sixth-sense-advisors",
-    "version": "1.0.1",
+    "version": "1.0.7",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "sixthsenseadvisors",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.sixthsense.advisors",
-      "buildNumber": "1",
+      "buildNumber": "6",
       "infoPlist": {
         "NSCameraUsageDescription": "Video calls with clients",
         "NSMicrophoneUsageDescription": "Voice and video calls with clients",
@@ -40,7 +40,7 @@
         "backgroundColor": "#E8A0B8"
       },
       "package": "com.sixthsense.advisors",
-      "versionCode": 4,
+      "versionCode": 7,
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

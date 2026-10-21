@@ -21,7 +21,7 @@ import { useTheme } from '../../src/context/ThemeContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { setSecureItem, getSecureItem } from '../../src/services/secureStorage';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'http://192.168.29.227:8000';
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://api.sixthsensepsychics.com';
 
 const formatTxDate = (iso: string) => {
   if (!iso) return '';
@@ -53,6 +53,7 @@ export default function EarningsScreen() {
   });
   const [period, setPeriod] = useState({ gross: 0, net: 0, sessions: 0 });
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [payoutHistory, setPayoutHistory] = useState<any[]>([]);
   // ADV-049: Date Range Earnings Filter state
   const [timeframe, setTimeframe] = useState<'7d' | '30d' | 'month' | 'all'>('30d');
   const timeframeRef = useRef(timeframe);
@@ -86,6 +87,17 @@ export default function EarningsScreen() {
         setRecentTransactions(Array.isArray(data.transactions) ? data.transactions : []);
         // ADV-018: Encrypted financial earnings cache
         setSecureItem('__6th_sense_earnings_cache', JSON.stringify(newEarnings)).catch(() => null);
+      }
+
+      // Fetch withdrawal & payout requests history
+      try {
+        const pRes = await fetch(`${BACKEND_URL}/api/payments/psychic-payouts/${encodeURIComponent(pid)}`);
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          setPayoutHistory(Array.isArray(pData.payouts) ? pData.payouts : []);
+        }
+      } catch (pErr) {
+        console.log('Error fetching psychic payouts:', pErr);
       }
     } catch (error) {
       console.warn('Error fetching earnings:', error);
@@ -329,6 +341,109 @@ export default function EarningsScreen() {
             </View>
 
           </View>
+        </View>
+
+        {/* Withdrawal & Payout Requests History (ADV-045) */}
+        <View style={styles.section}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.md }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="card-outline" size={20} color={colors.primary} />
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary, marginBottom: 0 }]}>
+                Withdrawal Requests
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => router.push('/withdraw')}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.primary }}>+ New Payout</Text>
+            </TouchableOpacity>
+          </View>
+
+          {payoutHistory.length === 0 ? (
+            <View style={[styles.txCard, { backgroundColor: colors.backgroundCard, justifyContent: 'center', paddingVertical: 18 }]}>
+              <Text style={{ color: colors.textSecondary, fontSize: 13, textAlign: 'center' }}>
+                No withdrawal requests yet. Tap "Withdraw Funds" above to cash out earnings.
+              </Text>
+            </View>
+          ) : (
+            payoutHistory.map((payout) => {
+              const status = (payout.status || 'pending').toLowerCase();
+              const isPending = status === 'pending';
+              const isCompleted = ['completed', 'paid', 'succeeded'].includes(status);
+              const isRejected = status === 'rejected';
+
+              const statusColor = isCompleted ? colors.success : isRejected ? colors.error : colors.warning;
+              const statusLabel = isCompleted ? '✓ Completed' : isRejected ? '✕ Declined' : '⏳ Under Review';
+
+              return (
+                <View
+                  key={payout.id || payout._id}
+                  style={[
+                    styles.txCard,
+                    {
+                      backgroundColor: colors.backgroundCard,
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                      borderLeftWidth: 4,
+                      borderLeftColor: statusColor,
+                      padding: 14,
+                      marginBottom: 10,
+                    },
+                  ]}
+                >
+                  {/* Card Top */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={[styles.txIcon, { backgroundColor: statusColor + '20' }]}>
+                        <Ionicons
+                          name={isCompleted ? 'checkmark-circle' : isRejected ? 'close-circle' : 'time'}
+                          size={20}
+                          color={statusColor}
+                        />
+                      </View>
+                      <View>
+                        <Text style={{ fontSize: 17, fontWeight: '800', color: colors.textPrimary }}>
+                          ${(payout.net_amount || payout.amount).toFixed(2)}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 1 }}>
+                          {formatTxDate(payout.created_at)}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ backgroundColor: statusColor + '20', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: statusColor }}>
+                        {statusLabel}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Financial Breakdown */}
+                  <View style={{ backgroundColor: colors.backgroundElevated, borderRadius: 8, padding: 8, marginTop: 4 }}>
+                    <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+                      Applied: <Text style={{ fontWeight: '700', color: colors.textPrimary }}>${(payout.gross_amount || payout.amount).toFixed(2)}</Text> • Fee: <Text style={{ fontWeight: '700', color: colors.success }}>${(payout.fee || 0).toFixed(2)}</Text> • Method: <Text style={{ fontWeight: '700', color: colors.textPrimary }}>{payout.method ? payout.method.replace('_', ' ').toUpperCase() : 'BANK TRANSFER'}</Text>
+                    </Text>
+
+                    {isPending && (
+                      <Text style={{ fontSize: 11, color: colors.warning, marginTop: 4 }}>
+                        ⏳ Request submitted to admin. Will be transferred within 1-2 business days.
+                      </Text>
+                    )}
+
+                    {isRejected && payout.rejection_reason && (
+                      <Text style={{ fontSize: 11, color: colors.error, marginTop: 4 }}>
+                        ⚠️ Reason: {payout.rejection_reason}
+                      </Text>
+                    )}
+
+                    {isCompleted && (
+                      <Text style={{ fontSize: 11, color: colors.success, marginTop: 4 }}>
+                        ✓ Transferred to your registered account.
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
 
         {/* Recent Transactions */}
