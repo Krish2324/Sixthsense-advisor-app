@@ -289,7 +289,7 @@ export default function EarningsScreen() {
               <Text style={{ fontSize: 13, color: colors.textMuted }}>Client Tips (100% to Advisor)</Text>
               <Ionicons name="gift-outline" size={13} color={colors.primary} />
             </View>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>+${(period.tips || earnings.totalTips).toFixed(2)}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>+${period.tips.toFixed(2)}</Text>
           </View>
           
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
