@@ -33,6 +33,7 @@ interface Reading {
   videoUrl?: string;
   videoResponseUrl?: string;
   durationFormatted?: string;
+  notes?: string;
 }
 
 interface SessionItem {
@@ -47,6 +48,7 @@ interface SessionItem {
   psychic_earnings: number;
   total_cost: number;
   rate_per_minute: number;
+  notes?: string;
   created_at: string;
   ended_at: string;
 }
@@ -133,6 +135,7 @@ export default function ReadingsScreen() {
               videoUrl: q.video_url,
               videoResponseUrl: q.video_response_url,
               durationFormatted: q.duration_formatted,
+              notes: q.notes || q.psychic_notes || '',
             }))
           );
         }
@@ -277,6 +280,17 @@ export default function ReadingsScreen() {
             </Text>
           </TouchableOpacity>
         )}
+
+        {/* Advisor Session Notes if completed */}
+        {item.notes ? (
+          <View style={{ marginTop: 8, padding: 8, backgroundColor: colors.backgroundElevated, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+              <Ionicons name="document-text" size={13} color={colors.primary} />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textPrimary }}>Advisor Session Notes</Text>
+            </View>
+            <Text style={{ fontSize: 12, color: colors.textSecondary, lineHeight: 16 }}>{item.notes}</Text>
+          </View>
+        ) : null}
 
         {/* Footer */}
         <View style={[styles.readingFooter, { borderTopColor: colors.border }]}>
@@ -448,6 +462,17 @@ export default function ReadingsScreen() {
                       </Text>
                     </View>
                   </View>
+
+                  {/* Advisor Session Notes if saved */}
+                  {item.notes ? (
+                    <View style={{ marginTop: 8, padding: 8, backgroundColor: colors.backgroundElevated, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: colors.primary }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                        <Ionicons name="document-text" size={13} color={colors.primary} />
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textPrimary }}>Advisor Session Notes</Text>
+                      </View>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary, lineHeight: 16 }}>{item.notes}</Text>
+                    </View>
+                  ) : null}
                 </View>
               )}
             />

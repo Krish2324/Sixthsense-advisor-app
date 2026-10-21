@@ -51,7 +51,7 @@ export default function EarningsScreen() {
     lifetime: 0,
     totalTips: 0,
   });
-  const [period, setPeriod] = useState({ gross: 0, net: 0, sessions: 0 });
+  const [period, setPeriod] = useState({ gross: 0, net: 0, readingNet: 0, tips: 0, sessions: 0 });
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [payoutHistory, setPayoutHistory] = useState<any[]>([]);
   // ADV-049: Date Range Earnings Filter state
@@ -79,9 +79,16 @@ export default function EarningsScreen() {
           totalTips: Number(data.total_tips) || 0,
         };
         setEarnings(newEarnings);
+        const periodTipsVal = Number(data.period_tips) || 0;
+        const netVal = Number(data.period_net) || 0;
+        const readingNetVal = (data.period_reading_net !== undefined && data.period_reading_net !== null)
+          ? Number(data.period_reading_net)
+          : Math.max(0, netVal - periodTipsVal);
         setPeriod({
           gross: Number(data.period_gross) || 0,
-          net: Number(data.period_net) || 0,
+          net: netVal,
+          readingNet: readingNetVal,
+          tips: periodTipsVal,
           sessions: Number(data.period_sessions) || 0,
         });
         setRecentTransactions(Array.isArray(data.transactions) ? data.transactions : []);
@@ -269,12 +276,25 @@ export default function EarningsScreen() {
           
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
             <Text style={{ fontSize: 13, color: colors.textMuted }}>Platform Operations Fee (60%)</Text>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error }}>-${Math.max(0, period.gross - period.net).toFixed(2)}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.error }}>-${Math.max(0, period.gross - period.readingNet).toFixed(2)}</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: 13, color: colors.textMuted }}>Advisor Net Reading Earnings (40%)</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>${period.readingNet.toFixed(2)}</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 13, color: colors.textMuted }}>Client Tips (100% to Advisor)</Text>
+              <Ionicons name="gift-outline" size={13} color={colors.primary} />
+            </View>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>+${(period.tips || earnings.totalTips).toFixed(2)}</Text>
           </View>
           
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 }}>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }}>Advisor Net Earnings (40%)</Text>
-            <Text style={{ fontSize: 15, fontWeight: '800', color: colors.success }}>${period.net.toFixed(2)}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: colors.textPrimary }}>Total Advisor Take-Home Net</Text>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: colors.success }}>${period.net.toFixed(2)}</Text>
           </View>
         </View>
 
@@ -475,6 +495,11 @@ export default function EarningsScreen() {
                   {tx.type === 'tip' ? 'Client Tip' : tx.type === 'withdrawal' ? 'Withdrawal' : `${tx.session_type === 'video' ? 'Video Call' : tx.session_type === 'phone' ? 'Audio Call' : 'Live Chat'}${tx.duration_seconds ? ` • ${Math.floor(tx.duration_seconds / 60)}m ${tx.duration_seconds % 60}s` : ''}`}
                 </Text>
                 <Text style={[styles.txDate, { color: colors.textMuted }]}>{formatTxDate(tx.date)}</Text>
+                {tx.notes ? (
+                  <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }} numberOfLines={1}>
+                    📝 {tx.notes}
+                  </Text>
+                ) : null}
               </View>
               <Text style={[
                 styles.txAmount,
