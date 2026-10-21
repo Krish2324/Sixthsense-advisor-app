@@ -67,8 +67,9 @@ export default function EarningsScreen() {
       return;
     }
     try {
+      const emailParam = psychic?.email ? `&email=${encodeURIComponent(psychic.email)}` : '';
       const response = await fetch(
-        `${BACKEND_URL}/api/payments/psychic-earnings/${encodeURIComponent(pid)}?timeframe=${timeframeRef.current}`
+        `${BACKEND_URL}/api/payments/psychic-earnings/${encodeURIComponent(pid)}?timeframe=${timeframeRef.current}${emailParam}`
       );
       if (response.ok) {
         const data = await response.json();
@@ -98,7 +99,8 @@ export default function EarningsScreen() {
 
       // Fetch withdrawal & payout requests history
       try {
-        const pRes = await fetch(`${BACKEND_URL}/api/payments/psychic-payouts/${encodeURIComponent(pid)}`);
+        const pEmailParam = psychic?.email ? `?email=${encodeURIComponent(psychic.email)}` : '';
+        const pRes = await fetch(`${BACKEND_URL}/api/payments/psychic-payouts/${encodeURIComponent(pid)}${pEmailParam}`);
         if (pRes.ok) {
           const pData = await pRes.json();
           setPayoutHistory(Array.isArray(pData.payouts) ? pData.payouts : []);
@@ -165,7 +167,8 @@ export default function EarningsScreen() {
       Alert.alert('Notice', 'Advisor profile not loaded yet');
       return;
     }
-    const url = `${BACKEND_URL}/api/payments/statement-pdf/${encodeURIComponent(pid)}?timeframe=${timeframe}`;
+    const emailParam = psychic?.email ? `&email=${encodeURIComponent(psychic.email)}` : '';
+    const url = `${BACKEND_URL}/api/payments/statement-pdf/${encodeURIComponent(pid)}?timeframe=${timeframe}${emailParam}`;
     if (Platform.OS === 'web') {
       if (typeof window !== 'undefined') window.open(url, '_blank');
     } else {

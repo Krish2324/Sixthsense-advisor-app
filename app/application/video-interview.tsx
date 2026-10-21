@@ -143,7 +143,10 @@ export default function VideoInterviewScreen() {
           
           if (uploadResponse.ok) {
             const uploadResult = await uploadResponse.json();
-            finalVideoUrl = `${BACKEND_URL}${uploadResult.video_url}`;
+            const returnedUrl = uploadResult.cloudinary_url || uploadResult.video_url;
+            if (returnedUrl) {
+              finalVideoUrl = returnedUrl.startsWith('http') ? returnedUrl : `${BACKEND_URL}${returnedUrl}`;
+            }
             console.log('Video uploaded successfully:', finalVideoUrl);
           }
         } catch (uploadError) {
@@ -258,6 +261,7 @@ export default function VideoInterviewScreen() {
         style={styles.camera}
         facing={facing}
         mode="video"
+        videoQuality="480p"
       >
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + SPACING.md }]}>

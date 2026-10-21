@@ -150,7 +150,7 @@ export default function IntroVideoScreen() {
       let finalVideoUrl = recordedVideo || 'intro_video_recorded';
 
       // Upload recorded video to backend server if it's a local file URI
-      if (recordedVideo && recordedVideo.startsWith('file://')) {
+      if (recordedVideo && (recordedVideo.startsWith('file://') || recordedVideo.startsWith('content://') || recordedVideo.startsWith('/'))) {
         try {
           const form = new FormData();
           form.append('file', {
@@ -166,8 +166,9 @@ export default function IntroVideoScreen() {
 
           if (uploadRes.ok) {
             const uploadJson = await uploadRes.json();
-            if (uploadJson.video_url) {
-              finalVideoUrl = `${BACKEND_URL}${uploadJson.video_url}`;
+            const returnedUrl = uploadJson.cloudinary_url || uploadJson.video_url;
+            if (returnedUrl) {
+              finalVideoUrl = returnedUrl.startsWith('http') ? returnedUrl : `${BACKEND_URL}${returnedUrl}`;
             }
           }
         } catch (uploadErr) {
@@ -175,7 +176,9 @@ export default function IntroVideoScreen() {
         }
       }
 
+      applicationData.video_url = finalVideoUrl;
       applicationData.intro_video_url = finalVideoUrl;
+      applicationData.video_duration = timeElapsed;
       applicationData.intro_video_duration = timeElapsed;
       applicationData.intro_video_completed = true;
       
@@ -291,6 +294,7 @@ export default function IntroVideoScreen() {
           style={styles.camera}
           facing={facing}
           mode="video"
+          videoQuality="480p"
         >
           {/* Header */}
           <View style={[styles.header, { paddingTop: insets.top + SPACING.md }]}>

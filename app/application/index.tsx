@@ -589,8 +589,10 @@ export default function ApplicationScreen() {
           account_number: formData.accountNumber || undefined,
           routing_number: formData.routingNumber || undefined,
           password: formData.password || undefined,
-          video_url: stored.intro_video_url || 'intro_video_recorded',
-          video_duration: stored.intro_video_duration || 60,
+          video_url: stored.intro_video_url || stored.video_url || 'intro_video_recorded',
+          video_duration: stored.intro_video_duration || stored.video_duration || 60,
+          intro_video_url: stored.intro_video_url || stored.video_url || undefined,
+          intro_video_duration: stored.intro_video_duration || stored.video_duration || 60,
           device_token: fcmToken || undefined,
           fcm_token: fcmToken || undefined,
         };

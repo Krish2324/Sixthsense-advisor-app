@@ -116,7 +116,8 @@ export default function DashboardScreen() {
     const psychicIdentifier = psychic?.id || psychic?.email;
     if (!psychicIdentifier) return;
     try {
-      const response = await fetch(`${BACKEND_URL}/api/psychic-portal/dashboard/${encodeURIComponent(psychicIdentifier)}`);
+      const emailParam = psychic?.email ? `?email=${encodeURIComponent(psychic.email)}` : '';
+      const response = await fetch(`${BACKEND_URL}/api/psychic-portal/dashboard/${encodeURIComponent(psychicIdentifier)}${emailParam}`);
       if (response.ok) {
         const data = await response.json();
         setDashboardStats({
