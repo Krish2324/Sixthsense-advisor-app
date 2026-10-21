@@ -35,24 +35,31 @@ export default function ProfileScreen() {
   const [showVideoModal, setShowVideoModal] = useState(false);
   
   // Profile form state
+  const rawPic = psychic?.profile_picture;
+  const initialPic = (rawPic && !rawPic.startsWith('file://')) ? rawPic : '';
   const [name, setName] = useState(psychic?.name || '');
   const [bio, setBio] = useState(psychic?.bio || '');
-  const [profilePicture, setProfilePicture] = useState(psychic?.profile_picture || '');
+  const [profilePicture, setProfilePicture] = useState(initialPic);
   
   // Application data (email & phone from signup)
   const [applicationData, setApplicationData] = useState<any>(null);
 
   useEffect(() => {
     fetchApplicationData();
-  }, []);
+  }, [psychic?.id, psychic?.email]);
 
   const fetchApplicationData = async () => {
     try {
       // Fetch the psychic's application data to get email and phone
-      const response = await fetch(`${BACKEND_URL}/api/applications/psychic/${psychic?.id || psychic?.email}`);
+      const targetId = psychic?.id || psychic?.email;
+      if (!targetId) return;
+      const response = await fetch(`${BACKEND_URL}/api/applications/psychic/${targetId}`);
       if (response.ok) {
         const data = await response.json();
         setApplicationData(data);
+        if (!profilePicture && data?.profile_picture && !data.profile_picture.startsWith('file://')) {
+          setProfilePicture(data.profile_picture);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch application data:', error);
